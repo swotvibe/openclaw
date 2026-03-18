@@ -30,6 +30,7 @@ import {
   resolveOpenAIFastMode,
   resolveOpenAIServiceTier,
 } from "./openai-stream-wrappers.js";
+import { createAimlApiPayloadCompatibilityWrapper } from "./proxy-stream-wrappers.js";
 
 /**
  * Resolve provider-specific extra params from model config.
@@ -286,6 +287,10 @@ export function applyExtraParamsToAgent(
     log.debug(`applying OpenAI service_tier=${openAIServiceTier} for ${provider}/${modelId}`);
     agent.streamFn = createOpenAIServiceTierWrapper(agent.streamFn, openAIServiceTier);
   }
+
+  // AIMLAPI's chat-completions validator rejects null assistant content for
+  // tool calls and array-form tool results; normalize those payload shapes.
+  agent.streamFn = createAimlApiPayloadCompatibilityWrapper(agent.streamFn);
 
   // Work around upstream pi-ai hardcoding `store: false` for Responses API.
   // Force `store=true` for direct OpenAI Responses models and auto-enable
