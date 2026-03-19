@@ -7,6 +7,10 @@ import { resolveUserPath } from "../utils.js";
 import type { EmbeddingInput } from "./embedding-inputs.js";
 import { sanitizeAndNormalizeEmbedding } from "./embedding-vectors.js";
 import {
+  createAimlApiEmbeddingProvider,
+  type AimlApiEmbeddingClient,
+} from "./embeddings-aimlapi.js";
+import {
   createGeminiEmbeddingProvider,
   type GeminiEmbeddingClient,
   type GeminiTaskType,
@@ -20,6 +24,7 @@ import { createOpenAiEmbeddingProvider, type OpenAiEmbeddingClient } from "./emb
 import { createVoyageEmbeddingProvider, type VoyageEmbeddingClient } from "./embeddings-voyage.js";
 import { importNodeLlamaCpp } from "./node-llama.js";
 
+export type { AimlApiEmbeddingClient } from "./embeddings-aimlapi.js";
 export type { GeminiEmbeddingClient } from "./embeddings-gemini.js";
 export type { MistralEmbeddingClient } from "./embeddings-mistral.js";
 export type { OpenAiEmbeddingClient } from "./embeddings-openai.js";
@@ -35,14 +40,21 @@ export type EmbeddingProvider = {
   embedBatchInputs?: (inputs: EmbeddingInput[]) => Promise<number[][]>;
 };
 
-export type EmbeddingProviderId = "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama";
+export type EmbeddingProviderId =
+  | "aimlapi"
+  | "openai"
+  | "local"
+  | "gemini"
+  | "voyage"
+  | "mistral"
+  | "ollama";
 export type EmbeddingProviderRequest = EmbeddingProviderId | "auto";
 export type EmbeddingProviderFallback = EmbeddingProviderId | "none";
 
 // Remote providers considered for auto-selection when provider === "auto".
 // Ollama is intentionally excluded here so that "auto" mode does not
 // implicitly assume a local Ollama instance is available.
-const REMOTE_EMBEDDING_PROVIDER_IDS = ["openai", "gemini", "voyage", "mistral"] as const;
+const REMOTE_EMBEDDING_PROVIDER_IDS = ["openai", "gemini", "voyage", "mistral", "aimlapi"] as const;
 
 export type EmbeddingProviderResult = {
   provider: EmbeddingProvider | null;
@@ -50,6 +62,7 @@ export type EmbeddingProviderResult = {
   fallbackFrom?: EmbeddingProviderId;
   fallbackReason?: string;
   providerUnavailableReason?: string;
+  aimlapi?: AimlApiEmbeddingClient;
   openAi?: OpenAiEmbeddingClient;
   gemini?: GeminiEmbeddingClient;
   voyage?: VoyageEmbeddingClient;
@@ -179,6 +192,10 @@ export async function createEmbeddingProvider(
     if (id === "ollama") {
       const { provider, client } = await createOllamaEmbeddingProvider(options);
       return { provider, ollama: client };
+    }
+    if (id === "aimlapi") {
+      const { provider, client } = await createAimlApiEmbeddingProvider(options);
+      return { provider, aimlapi: client };
     }
     if (id === "gemini") {
       const { provider, client } = await createGeminiEmbeddingProvider(options);

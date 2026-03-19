@@ -28,6 +28,7 @@ export const DEFAULT_PROMPT: Record<MediaUnderstandingCapability, string> = {
 };
 export const DEFAULT_VIDEO_MAX_BASE64_BYTES = 70 * MB;
 export const DEFAULT_AUDIO_MODELS: Record<string, string> = {
+  aimlapi: "openai/gpt-4o-mini-transcribe",
   groq: "whisper-large-v3-turbo",
   openai: "gpt-4o-mini-transcribe",
   deepgram: "nova-3",
@@ -35,6 +36,7 @@ export const DEFAULT_AUDIO_MODELS: Record<string, string> = {
 };
 
 export const AUTO_AUDIO_KEY_PROVIDERS = [
+  "aimlapi",
   "openai",
   "groq",
   "deepgram",
@@ -42,6 +44,7 @@ export const AUTO_AUDIO_KEY_PROVIDERS = [
   "mistral",
 ] as const;
 export const AUTO_IMAGE_KEY_PROVIDERS = [
+  "aimlapi",
   "openai",
   "anthropic",
   "google",
@@ -51,6 +54,7 @@ export const AUTO_IMAGE_KEY_PROVIDERS = [
 ] as const;
 export const AUTO_VIDEO_KEY_PROVIDERS = ["google", "moonshot"] as const;
 export const DEFAULT_IMAGE_MODELS: Record<string, string> = {
+  aimlapi: "google/gemini-3-pro-preview",
   openai: "gpt-5-mini",
   anthropic: "claude-opus-4-6",
   google: "gemini-3-flash-preview",
@@ -60,6 +64,10 @@ export const DEFAULT_IMAGE_MODELS: Record<string, string> = {
 };
 export const CLI_OUTPUT_MAX_BUFFER = 5 * MB;
 export const DEFAULT_MEDIA_CONCURRENCY = 2;
+export const DEFAULT_AUDIO_CONTEXT_MODE = "transcript+summary" as const;
+export const DEFAULT_AUDIO_SUMMARY_TRIGGER_CHARS = 1000;
+export const DEFAULT_AUDIO_INLINE_TRANSCRIPT_MAX_CHARS = 4000;
+export const DEFAULT_AUDIO_SUMMARY_MAX_TOKENS = 180;
 
 /**
  * Minimum audio file size in bytes below which transcription is skipped.

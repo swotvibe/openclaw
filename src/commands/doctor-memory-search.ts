@@ -80,7 +80,24 @@ export async function noteMemorySearchHealth(
       return;
     }
     // Remote provider — check for API key
-    if (hasRemoteApiKey || (await hasApiKeyForProvider(resolved.provider, cfg, agentDir))) {
+    const explicitProviderReady =
+      hasRemoteApiKey || (await hasApiKeyForProvider(resolved.provider, cfg, agentDir));
+    if (explicitProviderReady) {
+      if (opts?.gatewayMemoryProbe?.checked && !opts.gatewayMemoryProbe.ready) {
+        const detail = opts.gatewayMemoryProbe.error?.trim();
+        note(
+          [
+            `Memory search provider is set to "${resolved.provider}" and credentials were found,`,
+            "but the gateway embeddings probe reports not ready.",
+            detail ? `Gateway probe: ${detail}` : null,
+            "",
+            `Verify: ${formatCliCommand("openclaw memory status --deep")}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          "Memory search",
+        );
+      }
       return;
     }
     if (opts?.gatewayMemoryProbe?.checked && opts.gatewayMemoryProbe.ready) {
@@ -118,7 +135,7 @@ export async function noteMemorySearchHealth(
   if (hasLocalEmbeddings(resolved.local)) {
     return;
   }
-  for (const provider of ["openai", "gemini", "voyage", "mistral"] as const) {
+  for (const provider of ["openai", "gemini", "voyage", "mistral", "aimlapi"] as const) {
     if (hasRemoteApiKey || (await hasApiKeyForProvider(provider, cfg, agentDir))) {
       return;
     }
@@ -144,7 +161,7 @@ export async function noteMemorySearchHealth(
       gatewayProbeWarning ? gatewayProbeWarning : null,
       "",
       "Fix (pick one):",
-      "- Set OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
+      "- Set AIMLAPI_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
       `- Configure credentials: ${formatCliCommand("openclaw configure --section model")}`,
       `- For local embeddings: configure agents.defaults.memorySearch.provider and local model path`,
       `- To disable: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.enabled false")}`,
@@ -187,7 +204,7 @@ function hasLocalEmbeddings(local: { modelPath?: string }, useDefaultFallback = 
 }
 
 async function hasApiKeyForProvider(
-  provider: "openai" | "gemini" | "voyage" | "mistral" | "ollama",
+  provider: "aimlapi" | "openai" | "gemini" | "voyage" | "mistral" | "ollama",
   cfg: OpenClawConfig,
   agentDir: string,
 ): Promise<boolean> {
@@ -203,6 +220,8 @@ async function hasApiKeyForProvider(
 
 function providerEnvVar(provider: string): string {
   switch (provider) {
+    case "aimlapi":
+      return "AIMLAPI_API_KEY";
     case "openai":
       return "OPENAI_API_KEY";
     case "gemini":

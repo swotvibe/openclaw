@@ -10,6 +10,10 @@ export const MEDIA_AUDIO_FIELD_KEYS = [
   "tools.media.audio.scope",
   "tools.media.audio.echoTranscript",
   "tools.media.audio.echoFormat",
+  "tools.media.audio.contextMode",
+  "tools.media.audio.summaryTriggerChars",
+  "tools.media.audio.inlineTranscriptMaxChars",
+  "tools.media.audio.summaryMaxTokens",
 ] as const;
 
 type MediaAudioFieldKey = (typeof MEDIA_AUDIO_FIELD_KEYS)[number];
@@ -37,6 +41,14 @@ export const MEDIA_AUDIO_FIELD_HELP: Record<MediaAudioFieldKey, string> = {
     "Echo the audio transcript back to the originating chat before agent processing. When enabled, users immediately see what was heard from their voice note, helping them verify transcription accuracy before the agent acts on it. Default: false.",
   "tools.media.audio.echoFormat":
     "Format string for the echoed transcript message. Use `{transcript}` as a placeholder for the transcribed text. Default: '📝 \"{transcript}\"'.",
+  "tools.media.audio.contextMode":
+    'Controls how audio is injected into agent context. Use "transcript" to inline transcript only, or "transcript+summary" to prepend a compact summary for longer recordings.',
+  "tools.media.audio.summaryTriggerChars":
+    "Character threshold after which OpenClaw generates an audio summary before injecting transcript into agent context. Raise this to avoid summarizing short voice notes.",
+  "tools.media.audio.inlineTranscriptMaxChars":
+    "Maximum transcript characters kept inline in agent context before OpenClaw truncates the middle for long recordings. The full transcript is still preserved separately on the message context.",
+  "tools.media.audio.summaryMaxTokens":
+    "Maximum tokens allowed for audio summary generation when contextMode uses summaries. Keep this small to bound extra model cost on long voice notes.",
 };
 
 export const MEDIA_AUDIO_FIELD_LABELS: Record<MediaAudioFieldKey, string> = {
@@ -51,4 +63,8 @@ export const MEDIA_AUDIO_FIELD_LABELS: Record<MediaAudioFieldKey, string> = {
   "tools.media.audio.scope": "Audio Understanding Scope",
   "tools.media.audio.echoTranscript": "Echo Transcript to Chat",
   "tools.media.audio.echoFormat": "Transcript Echo Format",
+  "tools.media.audio.contextMode": "Audio Context Mode",
+  "tools.media.audio.summaryTriggerChars": "Audio Summary Trigger Chars",
+  "tools.media.audio.inlineTranscriptMaxChars": "Inline Audio Transcript Max Chars",
+  "tools.media.audio.summaryMaxTokens": "Audio Summary Max Tokens",
 };

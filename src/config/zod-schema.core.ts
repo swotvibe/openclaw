@@ -708,6 +708,10 @@ export const ToolsMediaUnderstandingSchema = z
     models: z.array(MediaUnderstandingModelSchema).optional(),
     echoTranscript: z.boolean().optional(),
     echoFormat: z.string().optional(),
+    contextMode: z.union([z.literal("transcript"), z.literal("transcript+summary")]).optional(),
+    summaryTriggerChars: z.number().int().positive().optional(),
+    inlineTranscriptMaxChars: z.number().int().positive().optional(),
+    summaryMaxTokens: z.number().int().positive().optional(),
   })
   .strict()
   .optional();

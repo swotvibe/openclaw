@@ -11,6 +11,7 @@ import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.j
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
+import { DEFAULT_AIMLAPI_EMBEDDING_MODEL } from "./embeddings-aimlapi.js";
 import { DEFAULT_GEMINI_EMBEDDING_MODEL } from "./embeddings-gemini.js";
 import { DEFAULT_MISTRAL_EMBEDDING_MODEL } from "./embeddings-mistral.js";
 import { DEFAULT_OLLAMA_EMBEDDING_MODEL } from "./embeddings-ollama.js";
@@ -100,7 +101,14 @@ export abstract class MemoryManagerSyncOps {
   protected abstract readonly workspaceDir: string;
   protected abstract readonly settings: ResolvedMemorySearchConfig;
   protected provider: EmbeddingProvider | null = null;
-  protected fallbackFrom?: "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama";
+  protected fallbackFrom?:
+    | "aimlapi"
+    | "openai"
+    | "local"
+    | "gemini"
+    | "voyage"
+    | "mistral"
+    | "ollama";
   protected openAi?: OpenAiEmbeddingClient;
   protected gemini?: GeminiEmbeddingClient;
   protected voyage?: VoyageEmbeddingClient;
@@ -1097,6 +1105,7 @@ export abstract class MemoryManagerSyncOps {
       return false;
     }
     const fallbackFrom = this.provider.id as
+      | "aimlapi"
       | "openai"
       | "gemini"
       | "local"
@@ -1105,17 +1114,19 @@ export abstract class MemoryManagerSyncOps {
       | "ollama";
 
     const fallbackModel =
-      fallback === "gemini"
-        ? DEFAULT_GEMINI_EMBEDDING_MODEL
-        : fallback === "openai"
-          ? DEFAULT_OPENAI_EMBEDDING_MODEL
-          : fallback === "voyage"
-            ? DEFAULT_VOYAGE_EMBEDDING_MODEL
-            : fallback === "mistral"
-              ? DEFAULT_MISTRAL_EMBEDDING_MODEL
-              : fallback === "ollama"
-                ? DEFAULT_OLLAMA_EMBEDDING_MODEL
-                : this.settings.model;
+      fallback === "aimlapi"
+        ? DEFAULT_AIMLAPI_EMBEDDING_MODEL
+        : fallback === "gemini"
+          ? DEFAULT_GEMINI_EMBEDDING_MODEL
+          : fallback === "openai"
+            ? DEFAULT_OPENAI_EMBEDDING_MODEL
+            : fallback === "voyage"
+              ? DEFAULT_VOYAGE_EMBEDDING_MODEL
+              : fallback === "mistral"
+                ? DEFAULT_MISTRAL_EMBEDDING_MODEL
+                : fallback === "ollama"
+                  ? DEFAULT_OLLAMA_EMBEDDING_MODEL
+                  : this.settings.model;
 
     const fallbackResult = await createEmbeddingProvider({
       config: this.cfg,

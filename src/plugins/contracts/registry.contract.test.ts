@@ -150,12 +150,14 @@ describe("plugin contract registry", () => {
   });
 
   it("keeps bundled speech ownership explicit", () => {
+    expect(findSpeechProviderIdsForPlugin("aimlapi")).toEqual(["aimlapi"]);
     expect(findSpeechProviderIdsForPlugin("elevenlabs")).toEqual(["elevenlabs"]);
     expect(findSpeechProviderIdsForPlugin("microsoft")).toEqual(["microsoft"]);
     expect(findSpeechProviderIdsForPlugin("openai")).toEqual(["openai"]);
   });
 
   it("keeps bundled media-understanding ownership explicit", () => {
+    expect(findMediaUnderstandingProviderIdsForPlugin("aimlapi")).toEqual(["aimlapi"]);
     expect(findMediaUnderstandingProviderIdsForPlugin("anthropic")).toEqual(["anthropic"]);
     expect(findMediaUnderstandingProviderIdsForPlugin("google")).toEqual(["google"]);
     expect(findMediaUnderstandingProviderIdsForPlugin("minimax")).toEqual([
@@ -169,6 +171,7 @@ describe("plugin contract registry", () => {
   });
 
   it("keeps bundled image-generation ownership explicit", () => {
+    expect(findImageGenerationProviderIdsForPlugin("aimlapi")).toEqual(["aimlapi"]);
     expect(findImageGenerationProviderIdsForPlugin("fal")).toEqual(["fal"]);
     expect(findImageGenerationProviderIdsForPlugin("google")).toEqual(["google"]);
     expect(findImageGenerationProviderIdsForPlugin("openai")).toEqual(["openai"]);
@@ -186,6 +189,13 @@ describe("plugin contract registry", () => {
   });
 
   it("tracks speech registrations on bundled provider plugins", () => {
+    expect(findRegistrationForPlugin("aimlapi")).toMatchObject({
+      providerIds: ["aimlapi"],
+      speechProviderIds: ["aimlapi"],
+      mediaUnderstandingProviderIds: ["aimlapi"],
+      imageGenerationProviderIds: ["aimlapi"],
+      webSearchProviderIds: [],
+    });
     expect(findRegistrationForPlugin("fal")).toMatchObject({
       providerIds: ["fal"],
       speechProviderIds: [],

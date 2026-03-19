@@ -103,6 +103,18 @@ export type MediaUnderstandingConfig = MediaProviderRequestConfig & {
    * Default: '📝 "{transcript}"'
    */
   echoFormat?: string;
+  /**
+   * Audio-only context shaping mode.
+   * - "transcript": inject transcript only
+   * - "transcript+summary": inject summary for longer transcripts, then transcript
+   */
+  contextMode?: "transcript" | "transcript+summary";
+  /** Audio-only threshold that enables summary generation. */
+  summaryTriggerChars?: number;
+  /** Audio-only maximum transcript characters kept inline in BodyForAgent. */
+  inlineTranscriptMaxChars?: number;
+  /** Audio-only max tokens for summary generation. */
+  summaryMaxTokens?: number;
 };
 
 export type LinkModelConfig = {
@@ -334,7 +346,7 @@ export type MemorySearchConfig = {
     sessionMemory?: boolean;
   };
   /** Embedding provider mode. */
-  provider?: "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama";
+  provider?: "aimlapi" | "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama";
   remote?: {
     baseUrl?: string;
     apiKey?: SecretInput;
@@ -353,7 +365,7 @@ export type MemorySearchConfig = {
     };
   };
   /** Fallback behavior when embeddings fail. */
-  fallback?: "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
+  fallback?: "aimlapi" | "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
   /** Embedding model id (remote) or alias (local). */
   model?: string;
   /**

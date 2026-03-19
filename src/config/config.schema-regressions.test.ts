@@ -51,6 +51,20 @@ describe("config schema regressions", () => {
     expect(res.ok).toBe(true);
   });
 
+  it('accepts memorySearch provider "aimlapi"', () => {
+    const res = validateConfigObject({
+      agents: {
+        defaults: {
+          memorySearch: {
+            provider: "aimlapi",
+          },
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
   it("accepts safe iMessage remoteHost", () => {
     const res = validateConfigObject({
       channels: {
@@ -68,6 +82,23 @@ describe("config schema regressions", () => {
       channels: {
         whatsapp: {
           enabled: true,
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
+  it("accepts audio context shaping options", () => {
+    const res = validateConfigObject({
+      tools: {
+        media: {
+          audio: {
+            contextMode: "transcript+summary",
+            summaryTriggerChars: 1000,
+            inlineTranscriptMaxChars: 4000,
+            summaryMaxTokens: 180,
+          },
         },
       },
     });

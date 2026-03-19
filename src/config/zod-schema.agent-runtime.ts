@@ -606,6 +606,7 @@ export const MemorySearchSchema = z
       .optional(),
     provider: z
       .union([
+        z.literal("aimlapi"),
         z.literal("openai"),
         z.literal("local"),
         z.literal("gemini"),
@@ -634,6 +635,7 @@ export const MemorySearchSchema = z
       .optional(),
     fallback: z
       .union([
+        z.literal("aimlapi"),
         z.literal("openai"),
         z.literal("gemini"),
         z.literal("local"),

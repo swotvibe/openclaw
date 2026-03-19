@@ -135,6 +135,10 @@ describe("noteMemorySearchHealth", () => {
     await expectNoWarningWithConfiguredRemoteApiKey("openai");
   });
 
+  it("does not warn when remote apiKey is configured for explicit AIMLAPI provider", async () => {
+    await expectNoWarningWithConfiguredRemoteApiKey("aimlapi");
+  });
+
   it("treats SecretRef remote apiKey as configured for explicit provider", async () => {
     resolveMemorySearchConfig.mockReturnValue({
       provider: "openai",
@@ -213,6 +217,54 @@ describe("noteMemorySearchHealth", () => {
     expect(note).not.toHaveBeenCalled();
   });
 
+  it("resolves AIMLAPI auth for explicit AIMLAPI embedding provider", async () => {
+    resolveMemorySearchConfig.mockReturnValue({
+      provider: "aimlapi",
+      local: {},
+      remote: {},
+    });
+    resolveApiKeyForProvider.mockResolvedValue({
+      apiKey: "k",
+      source: "env: AIMLAPI_API_KEY",
+      mode: "api-key",
+    });
+
+    await noteMemorySearchHealth(cfg);
+
+    expect(resolveApiKeyForProvider).toHaveBeenCalledWith({
+      provider: "aimlapi",
+      cfg,
+      agentDir: "/tmp/agent-default",
+    });
+    expect(note).not.toHaveBeenCalled();
+  });
+
+  it("warns when explicit AIMLAPI provider has credentials but gateway probe is not ready", async () => {
+    resolveMemorySearchConfig.mockReturnValue({
+      provider: "aimlapi",
+      local: {},
+      remote: {},
+    });
+    resolveApiKeyForProvider.mockResolvedValue({
+      apiKey: "k",
+      source: "env: AIMLAPI_API_KEY",
+      mode: "api-key",
+    });
+
+    await noteMemorySearchHealth(cfg, {
+      gatewayMemoryProbe: {
+        checked: true,
+        ready: false,
+        error: "embeddings endpoint returned 403",
+      },
+    });
+
+    const message = String(note.mock.calls[0]?.[0] ?? "");
+    expect(message).toContain('provider is set to "aimlapi" and credentials were found');
+    expect(message).toContain("gateway embeddings probe reports not ready");
+    expect(message).toContain("embeddings endpoint returned 403");
+  });
+
   it("notes when gateway probe reports embeddings ready and CLI API key is missing", async () => {
     resolveMemorySearchConfig.mockReturnValue({
       provider: "gemini",
@@ -288,7 +340,7 @@ describe("noteMemorySearchHealth", () => {
     expect(note).toHaveBeenCalledTimes(1);
     const providerCalls = resolveApiKeyForProvider.mock.calls as Array<[{ provider: string }]>;
     const providersChecked = providerCalls.map(([arg]) => arg.provider);
-    expect(providersChecked).toEqual(["openai", "google", "voyage", "mistral"]);
+    expect(providersChecked).toEqual(["openai", "google", "voyage", "mistral", "aimlapi"]);
   });
 });
 

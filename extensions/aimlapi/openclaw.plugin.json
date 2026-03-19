@@ -1,0 +1,27 @@
+{
+  "id": "aimlapi",
+  "providers": ["aimlapi"],
+  "providerAuthEnvVars": {
+    "aimlapi": ["AIMLAPI_API_KEY", "AIMLAPI_KEY"]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "aimlapi",
+      "method": "api-key",
+      "choiceId": "aimlapi-api-key",
+      "choiceLabel": "AIMLAPI API key",
+      "groupId": "aimlapi",
+      "groupLabel": "AIMLAPI",
+      "groupHint": "One API key for chat, vision, speech, images, and embeddings",
+      "optionKey": "aimlapiApiKey",
+      "cliFlag": "--aimlapi-api-key",
+      "cliOption": "--aimlapi-api-key <key>",
+      "cliDescription": "AIMLAPI API key"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

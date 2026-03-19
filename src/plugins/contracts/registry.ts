@@ -1,3 +1,4 @@
+import aimlapiPlugin from "../../../extensions/aimlapi/index.js";
 import amazonBedrockPlugin from "../../../extensions/amazon-bedrock/index.js";
 import anthropicPlugin from "../../../extensions/anthropic/index.js";
 import bravePlugin from "../../../extensions/brave/index.js";
@@ -87,9 +88,15 @@ const bundledWebSearchPlugins: Array<RegistrablePlugin & { credentialValue: unkn
   { ...xaiPlugin, credentialValue: "xai-test" },
 ];
 
-const bundledSpeechPlugins: RegistrablePlugin[] = [elevenLabsPlugin, microsoftPlugin, openAIPlugin];
+const bundledSpeechPlugins: RegistrablePlugin[] = [
+  aimlapiPlugin,
+  elevenLabsPlugin,
+  microsoftPlugin,
+  openAIPlugin,
+];
 
 const bundledMediaUnderstandingPlugins: RegistrablePlugin[] = [
+  aimlapiPlugin,
   anthropicPlugin,
   googlePlugin,
   minimaxPlugin,
@@ -99,7 +106,12 @@ const bundledMediaUnderstandingPlugins: RegistrablePlugin[] = [
   zaiPlugin,
 ];
 
-const bundledImageGenerationPlugins: RegistrablePlugin[] = [falPlugin, googlePlugin, openAIPlugin];
+const bundledImageGenerationPlugins: RegistrablePlugin[] = [
+  aimlapiPlugin,
+  falPlugin,
+  googlePlugin,
+  openAIPlugin,
+];
 
 function captureRegistrations(plugin: RegistrablePlugin) {
   const captured = createCapturedPluginRegistration();
@@ -354,6 +366,7 @@ export const imageGenerationProviderContractRegistry: ImageGenerationProviderCon
 
 const bundledProviderPlugins = dedupePlugins([
   amazonBedrockPlugin,
+  aimlapiPlugin,
   anthropicPlugin,
   byteplusPlugin,
   chutesPlugin,

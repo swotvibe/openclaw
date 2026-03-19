@@ -52,6 +52,7 @@ export type AudioTranscriptionRequest = {
   buffer: Buffer;
   fileName: string;
   mime?: string;
+  sourceUrl?: string;
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;

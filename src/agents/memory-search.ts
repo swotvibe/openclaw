@@ -17,7 +17,7 @@ export type ResolvedMemorySearchConfig = {
   sources: Array<"memory" | "sessions">;
   extraPaths: string[];
   multimodal: MemoryMultimodalSettings;
-  provider: "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama" | "auto";
+  provider: "aimlapi" | "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama" | "auto";
   remote?: {
     baseUrl?: string;
     apiKey?: SecretInput;
@@ -33,7 +33,7 @@ export type ResolvedMemorySearchConfig = {
   experimental: {
     sessionMemory: boolean;
   };
-  fallback: "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
+  fallback: "aimlapi" | "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
   model: string;
   outputDimensionality?: number;
   local: {
@@ -88,6 +88,7 @@ export type ResolvedMemorySearchConfig = {
   };
 };
 
+const DEFAULT_AIMLAPI_MODEL = "text-embedding-3-small";
 const DEFAULT_OPENAI_MODEL = "text-embedding-3-small";
 const DEFAULT_GEMINI_MODEL = "gemini-embedding-001";
 const DEFAULT_VOYAGE_MODEL = "voyage-4-large";
@@ -162,6 +163,7 @@ function mergeConfig(
   );
   const includeRemote =
     hasRemoteConfig ||
+    provider === "aimlapi" ||
     provider === "openai" ||
     provider === "gemini" ||
     provider === "voyage" ||
@@ -190,17 +192,19 @@ function mergeConfig(
     : undefined;
   const fallback = overrides?.fallback ?? defaults?.fallback ?? "none";
   const modelDefault =
-    provider === "gemini"
-      ? DEFAULT_GEMINI_MODEL
-      : provider === "openai"
-        ? DEFAULT_OPENAI_MODEL
-        : provider === "voyage"
-          ? DEFAULT_VOYAGE_MODEL
-          : provider === "mistral"
-            ? DEFAULT_MISTRAL_MODEL
-            : provider === "ollama"
-              ? DEFAULT_OLLAMA_MODEL
-              : undefined;
+    provider === "aimlapi"
+      ? DEFAULT_AIMLAPI_MODEL
+      : provider === "gemini"
+        ? DEFAULT_GEMINI_MODEL
+        : provider === "openai"
+          ? DEFAULT_OPENAI_MODEL
+          : provider === "voyage"
+            ? DEFAULT_VOYAGE_MODEL
+            : provider === "mistral"
+              ? DEFAULT_MISTRAL_MODEL
+              : provider === "ollama"
+                ? DEFAULT_OLLAMA_MODEL
+                : undefined;
   const model = overrides?.model ?? defaults?.model ?? modelDefault ?? "";
   const outputDimensionality = overrides?.outputDimensionality ?? defaults?.outputDimensionality;
   const local = {

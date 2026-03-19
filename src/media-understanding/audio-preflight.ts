@@ -8,7 +8,46 @@ import {
   normalizeMediaAttachments,
   resolveMediaAttachmentLocalRoots,
 } from "./runner.js";
-import type { MediaUnderstandingProvider } from "./types.js";
+import type {
+  MediaUnderstandingDecision,
+  MediaUnderstandingOutput,
+  MediaUnderstandingProvider,
+} from "./types.js";
+
+function upsertOutput(
+  existing: MediaUnderstandingOutput[] | undefined,
+  next: MediaUnderstandingOutput,
+): MediaUnderstandingOutput[] {
+  const outputs = [...(existing ?? [])];
+  const idx = outputs.findIndex(
+    (entry) => entry.kind === next.kind && entry.attachmentIndex === next.attachmentIndex,
+  );
+  if (idx >= 0) {
+    outputs[idx] = next;
+    return outputs;
+  }
+  outputs.push(next);
+  return outputs;
+}
+
+function upsertDecision(
+  existing: MediaUnderstandingDecision[] | undefined,
+  next: MediaUnderstandingDecision,
+): MediaUnderstandingDecision[] {
+  const decisions = [...(existing ?? [])];
+  const nextIndexes = new Set(next.attachments.map((entry) => entry.attachmentIndex));
+  const idx = decisions.findIndex(
+    (entry) =>
+      entry.capability === next.capability &&
+      entry.attachments.some((attachment) => nextIndexes.has(attachment.attachmentIndex)),
+  );
+  if (idx >= 0) {
+    decisions[idx] = next;
+    return decisions;
+  }
+  decisions.push(next);
+  return decisions;
+}
 
 /**
  * Transcribes the first audio attachment BEFORE mention checking.
@@ -24,9 +63,10 @@ export async function transcribeFirstAudio(params: {
 }): Promise<string | undefined> {
   const { ctx, cfg } = params;
 
-  // Check if audio transcription is enabled in config
   const audioConfig = cfg.tools?.media?.audio;
-  if (!audioConfig || audioConfig.enabled === false) {
+  // Allow provider/key auto-detection even when tools.media.audio is absent.
+  // Only an explicit disable should short-circuit preflight transcription.
+  if (audioConfig?.enabled === false) {
     return undefined;
   }
 
@@ -49,7 +89,7 @@ export async function transcribeFirstAudio(params: {
   }
 
   try {
-    const { transcript } = await runAudioTranscription({
+    const { transcript, output, decision } = await runAudioTranscription({
       ctx,
       cfg,
       attachments,
@@ -62,8 +102,13 @@ export async function transcribeFirstAudio(params: {
       return undefined;
     }
 
-    // Mark this attachment as transcribed to avoid double-processing
-    firstAudio.alreadyTranscribed = true;
+    ctx.Transcript = transcript;
+    if (output) {
+      ctx.MediaUnderstanding = upsertOutput(ctx.MediaUnderstanding, output);
+    }
+    if (decision) {
+      ctx.MediaUnderstandingDecisions = upsertDecision(ctx.MediaUnderstandingDecisions, decision);
+    }
 
     if (shouldLogVerbose()) {
       logVerbose(

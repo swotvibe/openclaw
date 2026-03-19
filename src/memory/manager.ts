@@ -66,6 +66,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
   protected readonly settings: ResolvedMemorySearchConfig;
   protected provider: EmbeddingProvider | null;
   private readonly requestedProvider:
+    | "aimlapi"
     | "openai"
     | "local"
     | "gemini"
@@ -73,7 +74,14 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     | "mistral"
     | "ollama"
     | "auto";
-  protected fallbackFrom?: "openai" | "local" | "gemini" | "voyage" | "mistral" | "ollama";
+  protected fallbackFrom?:
+    | "aimlapi"
+    | "openai"
+    | "local"
+    | "gemini"
+    | "voyage"
+    | "mistral"
+    | "ollama";
   protected fallbackReason?: string;
   private readonly providerUnavailableReason?: string;
   protected openAi?: OpenAiEmbeddingClient;

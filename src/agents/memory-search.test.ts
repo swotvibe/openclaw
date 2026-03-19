@@ -6,7 +6,7 @@ const asConfig = (cfg: OpenClawConfig): OpenClawConfig => cfg;
 
 describe("memory search config", () => {
   function configWithDefaultProvider(
-    provider: "openai" | "local" | "gemini" | "mistral" | "ollama",
+    provider: "aimlapi" | "openai" | "local" | "gemini" | "mistral" | "ollama",
   ): OpenClawConfig {
     return asConfig({
       agents: {
@@ -111,6 +111,12 @@ describe("memory search config", () => {
     const resolved = resolveMemorySearchConfig(cfg, "main");
     expect(resolved?.provider).toBe("auto");
     expect(resolved?.fallback).toBe("none");
+  });
+
+  it("uses the AIMLAPI embedding default model when provider is aimlapi", () => {
+    const resolved = resolveMemorySearchConfig(configWithDefaultProvider("aimlapi"), "main");
+    expect(resolved?.provider).toBe("aimlapi");
+    expect(resolved?.model).toBe("text-embedding-3-small");
   });
 
   it("merges defaults and overrides", () => {
