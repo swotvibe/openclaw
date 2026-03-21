@@ -177,6 +177,18 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
       DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES; \
     fi
 
+# Optionally install sudo and grant the bundled non-root `node` user
+# passwordless elevation inside the container.
+ARG OPENCLAW_INSTALL_SUDO=""
+RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=openclaw-bookworm-apt-lists,target=/var/lib/apt,sharing=locked \
+    if [ -n "$OPENCLAW_INSTALL_SUDO" ]; then \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo && \
+      printf 'node ALL=(ALL) NOPASSWD:ALL\nDefaults:node !requiretty\n' > /etc/sudoers.d/openclaw-node && \
+      chmod 0440 /etc/sudoers.d/openclaw-node; \
+    fi
+
 # Optionally install Chromium and Xvfb for browser automation.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_BROWSER=1 ...
 # Adds ~300MB but eliminates the 60-90s Playwright install on every container start.

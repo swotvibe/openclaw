@@ -594,7 +594,24 @@ describe("sessions", () => {
         { sessionFile: bot2Session },
         { agentId: "bot1" },
       );
-      expect(sessionFile).toBe(bot2Session);
+      expect(sessionFile).toBe(
+        path.join(path.resolve("/different/state"), "agents", "bot2", "sessions", "sess-1.jsonl"),
+      );
+    });
+  });
+
+  it("rebases same-agent cross-root session files onto the current state dir", () => {
+    withStateDir(path.resolve("/different/state"), () => {
+      const originalBase = path.resolve("/original/state");
+      const mainSession = path.join(originalBase, "agents", "main", "sessions", "sess-1.jsonl");
+      const sessionFile = resolveSessionFilePath(
+        "sess-1",
+        { sessionFile: mainSession },
+        { agentId: "main" },
+      );
+      expect(sessionFile).toBe(
+        path.join(path.resolve("/different/state"), "agents", "main", "sessions", "sess-1.jsonl"),
+      );
     });
   });
 

@@ -56,7 +56,7 @@ services:
       - NET_RAW
       - NET_ADMIN
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges:${OPENCLAW_NO_NEW_PRIVILEGES:-true}
     environment:
       HOME: /home/node
       TERM: xterm-256color

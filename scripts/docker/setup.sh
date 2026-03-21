@@ -99,6 +99,128 @@ read_env_gateway_token() {
   fi
 }
 
+normalize_config_paths_for_container() {
+  local config_path="$OPENCLAW_CONFIG_DIR/openclaw.json"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  python3 - "$config_path" "$tmp" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+tmp_path = Path(sys.argv[2])
+
+cfg = json.loads(config_path.read_text(encoding="utf-8"))
+changed = False
+
+def remap(value):
+    global changed
+    if not isinstance(value, str):
+        return value
+    if value.startswith("/home/ubuntu/.openclaw"):
+        changed = True
+        return value.replace("/home/ubuntu/.openclaw", "/home/node/.openclaw", 1)
+    if value == "/home/ubuntu":
+        changed = True
+        return "/home/node"
+    return value
+
+agents = cfg.get("agents")
+if isinstance(agents, dict):
+    defaults = agents.get("defaults")
+    if isinstance(defaults, dict):
+        if "workspace" in defaults:
+            defaults["workspace"] = remap(defaults.get("workspace"))
+    items = agents.get("list")
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if "workspace" in item:
+                item["workspace"] = remap(item.get("workspace"))
+            if "agentDir" in item:
+                item["agentDir"] = remap(item.get("agentDir"))
+
+if changed:
+    tmp_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+else:
+    tmp_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+PY
+
+  if ! cmp -s "$config_path" "$tmp"; then
+    mv "$tmp" "$config_path"
+    echo "Normalized OpenClaw config paths for Docker container HOME=/home/node"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+normalize_session_state_paths_for_container() {
+  local state_root="$OPENCLAW_CONFIG_DIR/agents"
+  if [[ ! -d "$state_root" ]]; then
+    return 0
+  fi
+
+  local normalized_count
+  normalized_count="$(
+    find "$state_root" -type f -name 'sessions.json' -print0 | \
+      python3 - "$OPENCLAW_CONFIG_DIR" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+config_dir = Path(sys.argv[1])
+count = 0
+
+def remap(value):
+    if not isinstance(value, str):
+        return value
+    if value.startswith("/home/ubuntu/.openclaw"):
+        return value.replace("/home/ubuntu/.openclaw", "/home/node/.openclaw", 1)
+    if value.startswith("/home/ubuntu/opt/openclaw"):
+        return value.replace("/home/ubuntu/opt/openclaw", "/app", 1)
+    if value == "/home/ubuntu":
+        return "/home/node"
+    return value
+
+def walk(value):
+    if isinstance(value, dict):
+        return {key: walk(remap(item)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [walk(remap(item)) for item in value]
+    return remap(value)
+
+for raw_path in sys.stdin.buffer.read().split(b"\0"):
+    if not raw_path:
+        continue
+    path = Path(raw_path.decode("utf-8"))
+    try:
+        original = path.read_text(encoding="utf-8")
+        parsed = json.loads(original)
+    except Exception:
+        continue
+    normalized = walk(parsed)
+    rewritten = json.dumps(normalized, ensure_ascii=False, indent=2) + "\n"
+    if rewritten == original:
+        continue
+    path.write_text(rewritten, encoding="utf-8")
+    count += 1
+
+print(count)
+PY
+  )"
+  normalized_count="${normalized_count//$'\r'/}"
+  if [[ "${normalized_count:-0}" != "0" ]]; then
+    echo "Normalized $normalized_count session store file(s) for Docker container paths"
+  fi
+}
+
 ensure_control_ui_allowed_origins() {
   if [[ "${OPENCLAW_GATEWAY_BIND}" == "loopback" ]]; then
     return 0
@@ -139,6 +261,72 @@ contains_disallowed_chars() {
 is_valid_timezone() {
   local value="$1"
   [[ -e "/usr/share/zoneinfo/$value" && ! -d "/usr/share/zoneinfo/$value" ]]
+}
+
+port_in_use_details() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltnp "sport = :$port" 2>/dev/null || true
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+    return 0
+  fi
+  return 0
+}
+
+try_stop_user_gateway_service() {
+  local port="$1"
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! systemctl --user --quiet is-enabled openclaw-gateway.service 2>/dev/null; then
+    return 0
+  fi
+  if ! systemctl --user --quiet is-active openclaw-gateway.service 2>/dev/null; then
+    return 0
+  fi
+
+  local details
+  details="$(port_in_use_details "$port")"
+  if [[ "$details" != *openclaw-gatewa* && "$details" != *openclaw-gateway* ]]; then
+    return 0
+  fi
+
+  echo "==> Stopping existing user gateway service on port $port"
+  systemctl --user stop openclaw-gateway.service
+  sleep 2
+  if [[ -z "$(port_in_use_details "$port")" ]]; then
+    echo "==> Port $port released successfully"
+  else
+    echo "==> Port $port is still busy after stopping openclaw-gateway.service"
+  fi
+}
+
+ensure_host_port_available() {
+  local port="$1"
+  local label="$2"
+  local env_var="$3"
+  local details
+  try_stop_user_gateway_service "$port"
+  details="$(port_in_use_details "$port")"
+  if [[ -z "${details//$'\n'/}" ]]; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+ERROR: Host port $port for $label is already in use.
+
+$details
+
+Choose one of these fixes:
+  1. Stop the process already using the port.
+     Example: systemctl --user stop openclaw-gateway.service
+  2. Re-run Docker setup on a different port.
+     Example: $env_var=$((port + 1000)) ./docker-setup.sh
+EOF
+  exit 1
 }
 
 validate_mount_path_value() {
@@ -236,12 +424,21 @@ export OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 export OPENCLAW_IMAGE="$IMAGE_NAME"
 export OPENCLAW_DOCKER_APT_PACKAGES="${OPENCLAW_DOCKER_APT_PACKAGES:-}"
 export OPENCLAW_EXTENSIONS="${OPENCLAW_EXTENSIONS:-}"
+export OPENCLAW_INSTALL_SUDO="${OPENCLAW_INSTALL_SUDO:-1}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
 export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS="${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}"
 export OPENCLAW_SANDBOX="$SANDBOX_ENABLED"
 export OPENCLAW_DOCKER_SOCKET="$DOCKER_SOCKET_PATH"
 export OPENCLAW_TZ="$TIMEZONE"
+if [[ -n "$OPENCLAW_INSTALL_SUDO" && "$OPENCLAW_INSTALL_SUDO" != "0" ]]; then
+  export OPENCLAW_NO_NEW_PRIVILEGES="${OPENCLAW_NO_NEW_PRIVILEGES:-false}"
+else
+  export OPENCLAW_NO_NEW_PRIVILEGES="${OPENCLAW_NO_NEW_PRIVILEGES:-true}"
+fi
+
+ensure_host_port_available "$OPENCLAW_GATEWAY_PORT" "OpenClaw gateway" "OPENCLAW_GATEWAY_PORT"
+ensure_host_port_available "$OPENCLAW_BRIDGE_PORT" "OpenClaw bridge" "OPENCLAW_BRIDGE_PORT"
 
 # Detect Docker socket GID for sandbox group_add.
 DOCKER_GID=""
@@ -410,24 +607,29 @@ upsert_env() {
   mv "$tmp" "$file"
 }
 
-upsert_env "$ENV_FILE" \
-  OPENCLAW_CONFIG_DIR \
-  OPENCLAW_WORKSPACE_DIR \
-  OPENCLAW_GATEWAY_PORT \
-  OPENCLAW_BRIDGE_PORT \
-  OPENCLAW_GATEWAY_BIND \
-  OPENCLAW_GATEWAY_TOKEN \
-  OPENCLAW_IMAGE \
-  OPENCLAW_EXTRA_MOUNTS \
-  OPENCLAW_HOME_VOLUME \
-  OPENCLAW_DOCKER_APT_PACKAGES \
-  OPENCLAW_EXTENSIONS \
-  OPENCLAW_SANDBOX \
-  OPENCLAW_DOCKER_SOCKET \
-  DOCKER_GID \
-  OPENCLAW_INSTALL_DOCKER_CLI \
-  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS \
+ENV_KEYS=(
+  OPENCLAW_CONFIG_DIR
+  OPENCLAW_WORKSPACE_DIR
+  OPENCLAW_GATEWAY_PORT
+  OPENCLAW_BRIDGE_PORT
+  OPENCLAW_GATEWAY_BIND
+  OPENCLAW_GATEWAY_TOKEN
+  OPENCLAW_IMAGE
+  OPENCLAW_EXTRA_MOUNTS
+  OPENCLAW_HOME_VOLUME
+  OPENCLAW_DOCKER_APT_PACKAGES
+  OPENCLAW_EXTENSIONS
+  OPENCLAW_INSTALL_SUDO
+  OPENCLAW_NO_NEW_PRIVILEGES
+  OPENCLAW_SANDBOX
+  OPENCLAW_DOCKER_SOCKET
+  DOCKER_GID
+  OPENCLAW_INSTALL_DOCKER_CLI
+  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS
   OPENCLAW_TZ
+)
+
+upsert_env "$ENV_FILE" "${ENV_KEYS[@]}"
 
 if [[ "$IMAGE_NAME" == "openclaw:local" ]]; then
   echo "==> Building Docker image: $IMAGE_NAME"
@@ -435,6 +637,7 @@ if [[ "$IMAGE_NAME" == "openclaw:local" ]]; then
     --build-arg "OPENCLAW_DOCKER_APT_PACKAGES=${OPENCLAW_DOCKER_APT_PACKAGES}" \
     --build-arg "OPENCLAW_EXTENSIONS=${OPENCLAW_EXTENSIONS}" \
     --build-arg "OPENCLAW_INSTALL_DOCKER_CLI=${OPENCLAW_INSTALL_DOCKER_CLI:-}" \
+    --build-arg "OPENCLAW_INSTALL_SUDO=${OPENCLAW_INSTALL_SUDO}" \
     -t "$IMAGE_NAME" \
     -f "$ROOT_DIR/Dockerfile" \
     "$ROOT_DIR"
@@ -462,12 +665,16 @@ docker compose "${COMPOSE_ARGS[@]}" run --rm --user root --entrypoint sh opencla
   'find /home/node/.openclaw -xdev -exec chown node:node {} +; \
    [ -d /home/node/.openclaw/workspace/.openclaw ] && chown -R node:node /home/node/.openclaw/workspace/.openclaw || true'
 
+normalize_config_paths_for_container
+normalize_session_state_paths_for_container
+
 echo ""
 echo "==> Onboarding (interactive)"
 echo "Docker setup pins Gateway mode to local."
 echo "Gateway runtime bind comes from OPENCLAW_GATEWAY_BIND (default: lan)."
 echo "Current runtime bind: $OPENCLAW_GATEWAY_BIND"
 echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
+echo "Agent sudo inside container: $( [[ -n "$OPENCLAW_INSTALL_SUDO" && "$OPENCLAW_INSTALL_SUDO" != "0" ]] && printf 'enabled' || printf 'disabled' )"
 echo "Tailscale exposure: Off (use host-level tailnet/Tailscale setup separately)."
 echo "Install Gateway daemon: No (managed by Docker Compose)"
 echo ""
