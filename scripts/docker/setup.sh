@@ -337,15 +337,95 @@ try_stop_user_gateway_service() {
   fi
 }
 
+# Kill bare (non-systemd) openclaw-gateway or node gateway processes on a port.
+# This handles the common case where a user started the gateway manually via
+# `node dist/index.js gateway run` or the compiled `openclaw-gateway` binary
+# and forgot to stop it before running Docker setup.
+try_kill_bare_gateway_process() {
+  local port="$1"
+  local details
+  details="$(port_in_use_details "$port")"
+  if [[ -z "${details//$'\n'/}" ]]; then
+    return 0
+  fi
+
+  # Only kill processes that look like openclaw-gateway or node running gateway.
+  if [[ "$details" != *openclaw* && "$details" != *"dist/index.js"* ]]; then
+    return 0
+  fi
+
+  local pids=""
+  if command -v ss >/dev/null 2>&1; then
+    pids="$(ss -H -ltnp "sport = :$port" 2>/dev/null \
+      | grep -oP 'pid=\K[0-9]+' | sort -u || true)"
+  elif command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | sort -u || true)"
+  fi
+
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  local pid
+  for pid in $pids; do
+    # Safety: only kill if the process command line matches openclaw/gateway.
+    local cmdline=""
+    if [[ -r "/proc/$pid/cmdline" ]]; then
+      cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    elif command -v ps >/dev/null 2>&1; then
+      cmdline="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    fi
+    if [[ "$cmdline" != *openclaw* && "$cmdline" != *"dist/index.js"* ]]; then
+      continue
+    fi
+    echo "==> Killing stale gateway process (PID $pid) on port $port"
+    kill "$pid" 2>/dev/null || true
+  done
+
+  sleep 2
+  if [[ -z "$(port_in_use_details "$port")" ]]; then
+    echo "==> Port $port released successfully"
+  else
+    # Force-kill as last resort if graceful shutdown didn't work.
+    for pid in $pids; do
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "==> Force-killing stale gateway process (PID $pid)"
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    done
+    sleep 1
+  fi
+}
+
 ensure_host_port_available() {
   local port="$1"
   local label="$2"
   local env_var="$3"
   local details
+
+  # 1. Try stopping a systemd-managed user gateway service.
   try_stop_user_gateway_service "$port"
   details="$(port_in_use_details "$port")"
   if [[ -z "${details//$'\n'/}" ]]; then
     return 0
+  fi
+
+  # 2. Try killing bare (non-systemd) gateway processes on the port.
+  try_kill_bare_gateway_process "$port"
+  details="$(port_in_use_details "$port")"
+  if [[ -z "${details//$'\n'/}" ]]; then
+    return 0
+  fi
+
+  # 3. Also stop any existing Docker container occupying the port.
+  if docker compose "${COMPOSE_ARGS[@]}" ps -q openclaw-gateway 2>/dev/null | grep -q .; then
+    echo "==> Stopping existing Docker gateway container on port $port"
+    docker compose "${COMPOSE_ARGS[@]}" down openclaw-gateway 2>/dev/null || true
+    sleep 2
+    details="$(port_in_use_details "$port")"
+    if [[ -z "${details//$'\n'/}" ]]; then
+      return 0
+    fi
   fi
 
   cat >&2 <<EOF
