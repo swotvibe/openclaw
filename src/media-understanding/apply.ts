@@ -10,21 +10,12 @@ import {
   resolveInputFileLimits,
 } from "../media/input-files.js";
 import { resolveAttachmentKind } from "./attachments.js";
-import { summarizeAudioTranscript } from "./audio-summary.js";
 import { runWithConcurrency } from "./concurrency.js";
-import {
-  DEFAULT_AUDIO_CONTEXT_MODE,
-  DEFAULT_AUDIO_INLINE_TRANSCRIPT_MAX_CHARS,
-  DEFAULT_AUDIO_SUMMARY_MAX_TOKENS,
-  DEFAULT_AUDIO_SUMMARY_TRIGGER_CHARS,
-} from "./defaults.js";
 import { DEFAULT_ECHO_TRANSCRIPT_FORMAT, sendTranscriptEcho } from "./echo-transcript.js";
 import {
   extractMediaUserText,
-  formatAudioStatusSection,
   formatAudioTranscripts,
   formatMediaUnderstandingBody,
-  type AudioContextSection,
 } from "./format.js";
 import { resolveConcurrency } from "./resolve.js";
 import {
@@ -109,112 +100,6 @@ function appendFileBlocks(body: string | undefined, blocks: string[]): string {
     return suffix;
   }
   return `${base}\n\n${suffix}`.trim();
-}
-
-function appendBodySection(body: string | undefined, section: string | undefined): string {
-  const trimmedSection = section?.trim();
-  if (!trimmedSection) {
-    return body ?? "";
-  }
-  const base = typeof body === "string" ? body.trim() : "";
-  if (!base) {
-    return trimmedSection;
-  }
-  return `${base}\n\n${trimmedSection}`.trim();
-}
-
-type AudioContextSettings = {
-  contextMode: "transcript" | "transcript+summary";
-  summaryTriggerChars: number;
-  inlineTranscriptMaxChars: number;
-  summaryMaxTokens: number;
-};
-
-function mergeMediaOutputs(
-  existing: MediaUnderstandingOutput[] | undefined,
-  incoming: MediaUnderstandingOutput[],
-): MediaUnderstandingOutput[] {
-  const merged = new Map<string, MediaUnderstandingOutput>();
-  for (const output of existing ?? []) {
-    merged.set(`${output.kind}:${output.attachmentIndex}`, output);
-  }
-  for (const output of incoming) {
-    merged.set(`${output.kind}:${output.attachmentIndex}`, output);
-  }
-  return [...merged.values()];
-}
-
-function markPretranscribedAttachments(
-  attachments: ReturnType<typeof normalizeMediaAttachments>,
-  outputs: MediaUnderstandingOutput[],
-): void {
-  const transcribed = new Set(
-    outputs
-      .filter((output) => output.kind === "audio.transcription")
-      .map((output) => output.attachmentIndex),
-  );
-  for (const attachment of attachments) {
-    if (transcribed.has(attachment.index)) {
-      attachment.alreadyTranscribed = true;
-    }
-  }
-}
-
-function resolveAudioContextSettings(cfg: OpenClawConfig): AudioContextSettings {
-  const audio = cfg.tools?.media?.audio;
-  return {
-    contextMode: audio?.contextMode ?? DEFAULT_AUDIO_CONTEXT_MODE,
-    summaryTriggerChars: audio?.summaryTriggerChars ?? DEFAULT_AUDIO_SUMMARY_TRIGGER_CHARS,
-    inlineTranscriptMaxChars:
-      audio?.inlineTranscriptMaxChars ?? DEFAULT_AUDIO_INLINE_TRANSCRIPT_MAX_CHARS,
-    summaryMaxTokens: audio?.summaryMaxTokens ?? DEFAULT_AUDIO_SUMMARY_MAX_TOKENS,
-  };
-}
-
-function clipTranscriptForContext(text: string, maxChars: number): string {
-  const transcript = text.trim();
-  if (!transcript || transcript.length <= maxChars) {
-    return transcript;
-  }
-  const marker = "\n\n[Transcript truncated for context]\n\n";
-  const headChars =
-    maxChars >= DEFAULT_AUDIO_INLINE_TRANSCRIPT_MAX_CHARS
-      ? 3000
-      : Math.max(1, Math.floor(maxChars * 0.75));
-  const tailChars =
-    maxChars >= DEFAULT_AUDIO_INLINE_TRANSCRIPT_MAX_CHARS
-      ? 1000
-      : Math.max(1, maxChars - headChars);
-  return `${transcript.slice(0, headChars).trimEnd()}${marker}${transcript.slice(-tailChars).trimStart()}`.trim();
-}
-
-function resolveAudioFailureStatus(decisions: MediaUnderstandingDecision[]): string | undefined {
-  const attempts = decisions
-    .filter((decision) => decision.capability === "audio")
-    .flatMap((decision) => decision.attachments)
-    .flatMap((attachment) => attachment.attempts);
-  const reason = attempts
-    .map((attempt) => attempt.reason?.trim())
-    .find((value): value is string => Boolean(value));
-  if (!reason) {
-    return undefined;
-  }
-
-  const provider = attempts.find((attempt) => attempt.provider?.trim())?.provider?.trim();
-  const label = provider === "aimlapi" ? "AIMLAPI" : provider ? provider : "Audio";
-  if (/pending timeout/i.test(reason)) {
-    return `${label} transcription still processing`;
-  }
-  if (/http\s+\d+/i.test(reason)) {
-    return `${label} transcription failed due to a provider HTTP error`;
-  }
-  if (/missing transcript|missing text/i.test(reason)) {
-    return `${label} transcription response parsed but transcript was missing`;
-  }
-  if (/\bunsupported\b/i.test(reason) || /\bempty\b/i.test(reason)) {
-    return `${label} transcription skipped because the audio was empty or unsupported`;
-  }
-  return undefined;
 }
 
 function resolveUtf16Charset(buffer?: Buffer): "utf-16le" | "utf-16be" | undefined {
@@ -576,8 +461,7 @@ export async function applyMediaUnderstanding(params: {
       .find((value) => value && value.trim()) ?? undefined;
 
   const attachments = normalizeMediaAttachments(ctx);
-  markPretranscribedAttachments(attachments, ctx.MediaUnderstanding ?? []);
-  const providerRegistry = buildProviderRegistry(params.providers);
+  const providerRegistry = buildProviderRegistry(params.providers, cfg);
   const cache = createMediaAttachmentCache(attachments, {
     localPathRoots: resolveMediaAttachmentLocalRoots({ cfg, ctx }),
   });
@@ -599,14 +483,14 @@ export async function applyMediaUnderstanding(params: {
     });
 
     const results = await runWithConcurrency(tasks, resolveConcurrency(cfg));
-    const newOutputs: MediaUnderstandingOutput[] = [];
+    const outputs: MediaUnderstandingOutput[] = [];
     const decisions: MediaUnderstandingDecision[] = [];
     for (const entry of results) {
       if (!entry) {
         continue;
       }
       for (const output of entry.outputs) {
-        newOutputs.push(output);
+        outputs.push(output);
       }
       decisions.push(entry.decision);
     }
@@ -615,90 +499,34 @@ export async function applyMediaUnderstanding(params: {
       ctx.MediaUnderstandingDecisions = [...(ctx.MediaUnderstandingDecisions ?? []), ...decisions];
     }
 
-    const outputs = mergeMediaOutputs(ctx.MediaUnderstanding, newOutputs);
-    const audioOutputs = outputs.filter((output) => output.kind === "audio.transcription");
-    const newAudioOutputs = newOutputs.filter((output) => output.kind === "audio.transcription");
-    let audioSummary: string | undefined;
-    const audioContexts = new Map<number, AudioContextSection>();
-
-    if (audioOutputs.length > 0) {
-      const transcript = formatAudioTranscripts(audioOutputs);
-      const audioSettings = resolveAudioContextSettings(cfg);
-      const shouldSummarize =
-        audioSettings.contextMode === "transcript+summary" &&
-        transcript.length > audioSettings.summaryTriggerChars;
-      if (shouldSummarize) {
-        try {
-          audioSummary = await summarizeAudioTranscript({
-            cfg,
-            agentDir: params.agentDir,
-            activeModel: params.activeModel,
-            transcript,
-            maxTokens: audioSettings.summaryMaxTokens,
-          });
-        } catch (err) {
-          if (shouldLogVerbose()) {
-            logVerbose(`media: audio summary skipped: ${String(err)}`);
-          }
-        }
-      }
-      for (const output of audioOutputs) {
-        audioContexts.set(output.attachmentIndex, {
-          transcript: clipTranscriptForContext(output.text, audioSettings.inlineTranscriptMaxChars),
-          ...(audioOutputs.length === 1 && audioSummary ? { summary: audioSummary } : {}),
-        });
-      }
-
-      ctx.Body = formatMediaUnderstandingBody({
-        body: ctx.Body,
-        outputs,
-        audioContexts,
-        audioSummary,
-      });
-      ctx.Transcript = transcript;
-      if (originalUserText) {
-        ctx.CommandBody = originalUserText;
-        ctx.RawBody = originalUserText;
-      } else {
-        ctx.CommandBody = transcript;
-        ctx.RawBody = transcript;
-      }
-
-      const audioCfg = cfg.tools?.media?.audio;
-      if (audioCfg?.echoTranscript && transcript && newAudioOutputs.length > 0) {
-        await sendTranscriptEcho({
-          ctx,
-          cfg,
-          transcript,
-          format: audioCfg.echoFormat ?? DEFAULT_ECHO_TRANSCRIPT_FORMAT,
-        });
-      }
-    } else if (outputs.length > 0) {
-      ctx.Body = formatMediaUnderstandingBody({ body: ctx.Body, outputs });
-      if (originalUserText) {
-        ctx.CommandBody = originalUserText;
-        ctx.RawBody = originalUserText;
-      }
-    } else if (originalUserText) {
-      ctx.CommandBody = originalUserText;
-      ctx.RawBody = originalUserText;
-    }
-
-    const audioStatus =
-      audioOutputs.length === 0 ? resolveAudioFailureStatus(decisions) : undefined;
-    if (audioStatus) {
-      ctx.Body = appendBodySection(
-        ctx.Body,
-        formatAudioStatusSection({
-          body: ctx.Body,
-          status: audioStatus,
-          includeUserText: outputs.length === 0,
-        }),
-      );
-    }
-
     if (outputs.length > 0) {
-      ctx.MediaUnderstanding = outputs;
+      ctx.Body = formatMediaUnderstandingBody({ body: ctx.Body, outputs });
+      const audioOutputs = outputs.filter((output) => output.kind === "audio.transcription");
+      if (audioOutputs.length > 0) {
+        const transcript = formatAudioTranscripts(audioOutputs);
+        ctx.Transcript = transcript;
+        if (originalUserText) {
+          ctx.CommandBody = originalUserText;
+          ctx.RawBody = originalUserText;
+        } else {
+          ctx.CommandBody = transcript;
+          ctx.RawBody = transcript;
+        }
+        // Echo transcript back to chat before agent processing, if configured.
+        const audioCfg = cfg.tools?.media?.audio;
+        if (audioCfg?.echoTranscript && transcript) {
+          await sendTranscriptEcho({
+            ctx,
+            cfg,
+            transcript,
+            format: audioCfg.echoFormat ?? DEFAULT_ECHO_TRANSCRIPT_FORMAT,
+          });
+        }
+      } else if (originalUserText) {
+        ctx.CommandBody = originalUserText;
+        ctx.RawBody = originalUserText;
+      }
+      ctx.MediaUnderstanding = [...(ctx.MediaUnderstanding ?? []), ...outputs];
     }
     const audioAttachmentIndexes = new Set(
       outputs
@@ -714,7 +542,7 @@ export async function applyMediaUnderstanding(params: {
     if (fileBlocks.length > 0) {
       ctx.Body = appendFileBlocks(ctx.Body, fileBlocks);
     }
-    if (outputs.length > 0 || fileBlocks.length > 0 || audioStatus) {
+    if (outputs.length > 0 || fileBlocks.length > 0) {
       finalizeInboundContext(ctx, {
         forceBodyForAgent: true,
         forceBodyForCommands: outputs.length > 0 || fileBlocks.length > 0,

@@ -4,9 +4,9 @@ import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveApiKeyForProvider } from "../agents/model-auth.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { resolveMemoryBackendConfig } from "../memory/backend-config.js";
-import { DEFAULT_LOCAL_MODEL } from "../memory/embeddings.js";
-import { hasConfiguredMemorySecretInput } from "../memory/secret-input.js";
+import { DEFAULT_LOCAL_MODEL } from "../plugin-sdk/memory-core-host-engine-embeddings.js";
+import { hasConfiguredMemorySecretInput } from "../plugin-sdk/memory-core-host-secret.js";
+import { resolveActiveMemoryBackendConfig } from "../plugins/memory-runtime.js";
 import { note } from "../terminal/note.js";
 import { resolveUserPath } from "../utils.js";
 
@@ -36,7 +36,11 @@ export async function noteMemorySearchHealth(
 
   // QMD backend handles embeddings internally (e.g. embeddinggemma) — no
   // separate embedding provider is needed. Skip the provider check entirely.
-  const backendConfig = resolveMemoryBackendConfig({ cfg, agentId });
+  const backendConfig = resolveActiveMemoryBackendConfig({ cfg, agentId });
+  if (!backendConfig) {
+    note("No active memory plugin is registered for the current config.", "Memory search");
+    return;
+  }
   if (backendConfig.backend === "qmd") {
     return;
   }
@@ -80,24 +84,7 @@ export async function noteMemorySearchHealth(
       return;
     }
     // Remote provider — check for API key
-    const explicitProviderReady =
-      hasRemoteApiKey || (await hasApiKeyForProvider(resolved.provider, cfg, agentDir));
-    if (explicitProviderReady) {
-      if (opts?.gatewayMemoryProbe?.checked && !opts.gatewayMemoryProbe.ready) {
-        const detail = opts.gatewayMemoryProbe.error?.trim();
-        note(
-          [
-            `Memory search provider is set to "${resolved.provider}" and credentials were found,`,
-            "but the gateway embeddings probe reports not ready.",
-            detail ? `Gateway probe: ${detail}` : null,
-            "",
-            `Verify: ${formatCliCommand("openclaw memory status --deep")}`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          "Memory search",
-        );
-      }
+    if (hasRemoteApiKey || (await hasApiKeyForProvider(resolved.provider, cfg, agentDir))) {
       return;
     }
     if (opts?.gatewayMemoryProbe?.checked && opts.gatewayMemoryProbe.ready) {
@@ -135,7 +122,7 @@ export async function noteMemorySearchHealth(
   if (hasLocalEmbeddings(resolved.local)) {
     return;
   }
-  for (const provider of ["openai", "gemini", "voyage", "mistral", "aimlapi"] as const) {
+  for (const provider of ["openai", "gemini", "voyage", "mistral"] as const) {
     if (hasRemoteApiKey || (await hasApiKeyForProvider(provider, cfg, agentDir))) {
       return;
     }
@@ -161,7 +148,7 @@ export async function noteMemorySearchHealth(
       gatewayProbeWarning ? gatewayProbeWarning : null,
       "",
       "Fix (pick one):",
-      "- Set AIMLAPI_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
+      "- Set OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
       `- Configure credentials: ${formatCliCommand("openclaw configure --section model")}`,
       `- For local embeddings: configure agents.defaults.memorySearch.provider and local model path`,
       `- To disable: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.enabled false")}`,
@@ -204,7 +191,7 @@ function hasLocalEmbeddings(local: { modelPath?: string }, useDefaultFallback = 
 }
 
 async function hasApiKeyForProvider(
-  provider: "aimlapi" | "openai" | "gemini" | "voyage" | "mistral" | "ollama",
+  provider: string,
   cfg: OpenClawConfig,
   agentDir: string,
 ): Promise<boolean> {
@@ -220,8 +207,6 @@ async function hasApiKeyForProvider(
 
 function providerEnvVar(provider: string): string {
   switch (provider) {
-    case "aimlapi":
-      return "AIMLAPI_API_KEY";
     case "openai":
       return "OPENAI_API_KEY";
     case "gemini":

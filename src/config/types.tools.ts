@@ -103,18 +103,6 @@ export type MediaUnderstandingConfig = MediaProviderRequestConfig & {
    * Default: '📝 "{transcript}"'
    */
   echoFormat?: string;
-  /**
-   * Audio-only context shaping mode.
-   * - "transcript": inject transcript only
-   * - "transcript+summary": inject summary for longer transcripts, then transcript
-   */
-  contextMode?: "transcript" | "transcript+summary";
-  /** Audio-only threshold that enables summary generation. */
-  summaryTriggerChars?: number;
-  /** Audio-only maximum transcript characters kept inline in BodyForAgent. */
-  inlineTranscriptMaxChars?: number;
-  /** Audio-only max tokens for summary generation. */
-  summaryMaxTokens?: number;
 };
 
 export type LinkModelConfig = {
@@ -274,9 +262,9 @@ export type ExecToolConfig = {
    * Default false to reduce context noise.
    */
   notifyOnExitEmptySuccess?: boolean;
-  /** apply_patch subtool configuration (experimental). */
+  /** apply_patch subtool configuration. */
   applyPatch?: {
-    /** Enable apply_patch for OpenAI models (default: false). */
+    /** Enable apply_patch for OpenAI models (default: true; set false to disable). */
     enabled?: boolean;
     /**
      * Restrict apply_patch paths to the workspace directory.
@@ -352,8 +340,8 @@ export type MemorySearchConfig = {
     /** Enable session transcript indexing (experimental, default: false). */
     sessionMemory?: boolean;
   };
-  /** Embedding provider mode. */
-  provider?: "aimlapi" | "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama";
+  /** Memory embedding provider adapter id. */
+  provider?: string;
   remote?: {
     baseUrl?: string;
     apiKey?: SecretInput;
@@ -371,8 +359,8 @@ export type MemorySearchConfig = {
       timeoutMinutes?: number;
     };
   };
-  /** Fallback behavior when embeddings fail. */
-  fallback?: "aimlapi" | "openai" | "gemini" | "local" | "voyage" | "mistral" | "ollama" | "none";
+  /** Fallback memory embedding provider adapter id when embeddings fail. */
+  fallback?: string;
   /** Embedding model id (remote) or alias (local). */
   model?: string;
   /**
