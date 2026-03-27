@@ -160,10 +160,17 @@ export function applyNativeStreamingUsageCompat(
 
   for (const [providerKey, provider] of Object.entries(providers)) {
     const normalizedBaseUrl = normalizeProviderBaseUrl(provider.baseUrl);
+    // The URL is the authoritative signal for native-endpoint detection because
+    // users may register DashScope/Moonshot under arbitrary provider key names
+    // (e.g. "dashscope", "qwen", "kimi") while still pointing at the real API.
+    // When no baseUrl is configured the provider key serves as a fallback since
+    // built-in providers omit baseUrl and rely on their SDK defaults.
     const isNativeMoonshot =
-      providerKey === "moonshot" && MOONSHOT_NATIVE_BASE_URLS.has(normalizedBaseUrl);
+      MOONSHOT_NATIVE_BASE_URLS.has(normalizedBaseUrl) ||
+      (providerKey === "moonshot" && !normalizedBaseUrl);
     const isNativeModelStudio =
-      providerKey === "modelstudio" && MODELSTUDIO_NATIVE_BASE_URLS.has(normalizedBaseUrl);
+      MODELSTUDIO_NATIVE_BASE_URLS.has(normalizedBaseUrl) ||
+      (providerKey === "modelstudio" && !normalizedBaseUrl);
     const nextProvider =
       isNativeMoonshot || isNativeModelStudio ? withStreamingUsageCompat(provider) : provider;
     nextProviders[providerKey] = nextProvider;
