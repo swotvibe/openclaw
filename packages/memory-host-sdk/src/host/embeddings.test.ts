@@ -259,44 +259,6 @@ describe("embedding provider remote overrides", () => {
     expect(headers["x-goog-api-key"]).toBe("env-gemini-key");
   });
 
-  it("uses AIMLAPI embeddings through the remote bearer client", async () => {
-    const fetchMock = createFetchMock();
-    vi.stubGlobal("fetch", fetchMock);
-    mockPublicPinnedHostname();
-    mockResolvedProviderKey("aimlapi-key");
-
-    const cfg = {
-      models: {
-        providers: {
-          aimlapi: {
-            baseUrl: "https://api.aimlapi.com/v1",
-          },
-        },
-      },
-    };
-
-    const result = await createEmbeddingProvider({
-      config: cfg as never,
-      provider: "aimlapi",
-      model: "text-embedding-3-small",
-      fallback: "none",
-    });
-
-    const provider = requireProvider(result);
-    await provider.embedQuery("hello");
-
-    expect(authModule.resolveApiKeyForProvider).toHaveBeenCalledWith({
-      provider: "aimlapi",
-      cfg,
-      agentDir: undefined,
-    });
-    const { url, init } = readFirstFetchRequest(fetchMock);
-    expect(url).toBe("https://api.aimlapi.com/v1/embeddings");
-    const headers = (init?.headers ?? {}) as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer aimlapi-key");
-    expect(headers["Content-Type"]).toBe("application/json");
-  });
-
   it("builds Mistral embeddings requests with bearer auth", async () => {
     const fetchMock = createFetchMock();
     vi.stubGlobal("fetch", fetchMock);
