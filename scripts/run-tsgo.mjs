@@ -1,48 +1,37 @@
-import { execFileSync } from "node:child_process";
-import os from "node:os";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 
-const LOW_MEMORY_THRESHOLD_GIB = 12;
+const isLocalCheckEnabled = (env) => {
+  const raw = env.OPENCLAW_LOCAL_CHECK?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false";
+};
 
-function shouldUseLowMemoryMode() {
-  if (process.env.CI) {
-    return false;
+const args = process.argv.slice(2);
+const env = { ...process.env };
+const finalArgs = [...args];
+const separatorIndex = finalArgs.indexOf("--");
+
+const insertBeforeSeparator = (...items) => {
+  const index = separatorIndex === -1 ? finalArgs.length : separatorIndex;
+  finalArgs.splice(index, 0, ...items);
+};
+
+if (isLocalCheckEnabled(env) && !finalArgs.includes("--singleThreaded")) {
+  insertBeforeSeparator("--singleThreaded");
+  if (!env.GOGC) {
+    env.GOGC = "30";
   }
-  if (process.env.OPENCLAW_FORCE_FULL_TYPECHECK === "1") {
-    return false;
-  }
-  if (process.env.OPENCLAW_LOW_MEMORY_CHECKS === "1") {
-    return true;
-  }
-  return os.totalmem() < LOW_MEMORY_THRESHOLD_GIB * 1024 ** 3;
 }
 
-function buildEnv(extraNodeOptions) {
-  const env = { ...process.env };
-  if (!extraNodeOptions) {
-    return env;
-  }
-  env.NODE_OPTIONS = env.NODE_OPTIONS
-    ? `${env.NODE_OPTIONS} ${extraNodeOptions}`.trim()
-    : extraNodeOptions;
-  return env;
+const tsgoPath = path.resolve("node_modules", ".bin", "tsgo");
+const result = spawnSync(tsgoPath, finalArgs, {
+  stdio: "inherit",
+  env,
+  shell: process.platform === "win32",
+});
+
+if (result.error) {
+  throw result.error;
 }
 
-function run(command, args, extraNodeOptions) {
-  execFileSync(command, args, {
-    stdio: "inherit",
-    env: buildEnv(extraNodeOptions),
-  });
-}
-
-const extraArgs = process.argv.slice(2);
-
-if (shouldUseLowMemoryMode()) {
-  console.warn(
-    `[run-tsgo] low-memory mode enabled; using tsc --noEmit instead of tsgo (total RAM: ${Math.round(
-      os.totalmem() / 1024 ** 3,
-    )} GiB)`,
-  );
-  run("node", ["./node_modules/.bin/tsc", "--noEmit", ...extraArgs], "--max-old-space-size=4096");
-} else {
-  run("node", ["./node_modules/.bin/tsgo", "--noEmit", ...extraArgs]);
-}
+process.exit(result.status ?? 1);

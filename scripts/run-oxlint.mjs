@@ -1,37 +1,42 @@
-import { execFileSync } from "node:child_process";
-import os from "node:os";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 
-const LOW_MEMORY_THRESHOLD_GIB = 12;
+const isLocalCheckEnabled = (env) => {
+  const raw = env.OPENCLAW_LOCAL_CHECK?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false";
+};
 
-function shouldUseLowMemoryMode() {
-  if (process.env.CI) {
-    return false;
-  }
-  if (process.env.OPENCLAW_FORCE_FULL_LINT === "1") {
-    return false;
-  }
-  if (process.env.OPENCLAW_LOW_MEMORY_CHECKS === "1") {
-    return true;
-  }
-  return os.totalmem() < LOW_MEMORY_THRESHOLD_GIB * 1024 ** 3;
+const hasFlag = (args, name) => args.some((arg) => arg === name || arg.startsWith(`${name}=`));
+
+const args = process.argv.slice(2);
+const env = { ...process.env };
+const finalArgs = [...args];
+const separatorIndex = finalArgs.indexOf("--");
+
+const insertBeforeSeparator = (...items) => {
+  const index = separatorIndex === -1 ? finalArgs.length : separatorIndex;
+  finalArgs.splice(index, 0, ...items);
+};
+
+if (!hasFlag(finalArgs, "--type-aware")) {
+  insertBeforeSeparator("--type-aware");
+}
+if (!hasFlag(finalArgs, "--tsconfig")) {
+  insertBeforeSeparator("--tsconfig", "tsconfig.oxlint.json");
+}
+if (isLocalCheckEnabled(env) && !hasFlag(finalArgs, "--threads")) {
+  insertBeforeSeparator("--threads=1");
 }
 
-const args = ["./node_modules/.bin/oxlint"];
-
-if (shouldUseLowMemoryMode()) {
-  console.warn(
-    `[run-oxlint] low-memory mode enabled; running oxlint without type-aware tsgolint (total RAM: ${Math.round(
-      os.totalmem() / 1024 ** 3,
-    )} GiB)`,
-  );
-  args.push("--threads=1");
-} else {
-  args.push("--type-aware");
-}
-
-args.push(...process.argv.slice(2));
-
-execFileSync("node", args, {
+const oxlintPath = path.resolve("node_modules", ".bin", "oxlint");
+const result = spawnSync(oxlintPath, finalArgs, {
   stdio: "inherit",
-  env: process.env,
+  env,
+  shell: process.platform === "win32",
 });
+
+if (result.error) {
+  throw result.error;
+}
+
+process.exit(result.status ?? 1);

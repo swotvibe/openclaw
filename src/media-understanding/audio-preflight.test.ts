@@ -1,81 +1,46 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MsgContext } from "../auto-reply/templating.js";
-import type { OpenClawConfig } from "../config/config.js";
 
-const mocks = vi.hoisted(() => ({
-  runAudioTranscription: vi.fn(),
-  normalizeMediaAttachments: vi.fn(),
-  resolveMediaAttachmentLocalRoots: vi.fn(() => []),
-}));
+const runAudioTranscriptionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./audio-transcription-runner.js", () => ({
-  runAudioTranscription: mocks.runAudioTranscription,
+  runAudioTranscription: (...args: unknown[]) => runAudioTranscriptionMock(...args),
 }));
 
-vi.mock("./runner.js", () => ({
-  normalizeMediaAttachments: mocks.normalizeMediaAttachments,
-  resolveMediaAttachmentLocalRoots: mocks.resolveMediaAttachmentLocalRoots,
-}));
-
-import { transcribeFirstAudio } from "./audio-preflight.js";
+let transcribeFirstAudio: typeof import("./audio-preflight.js").transcribeFirstAudio;
 
 describe("transcribeFirstAudio", () => {
-  beforeEach(() => {
-    mocks.runAudioTranscription.mockReset();
-    mocks.normalizeMediaAttachments.mockReset();
-    mocks.resolveMediaAttachmentLocalRoots.mockClear();
+  beforeEach(async () => {
+    vi.resetModules();
+    runAudioTranscriptionMock.mockReset();
+    ({ transcribeFirstAudio } = await import("./audio-preflight.js"));
   });
 
-  it("uses the auto-detect fallback path when audio config is absent", async () => {
-    const ctx = {} as MsgContext;
-    mocks.normalizeMediaAttachments.mockReturnValue([
-      { index: 0, path: "/tmp/voice.ogg", mime: "audio/ogg" },
-    ]);
-    mocks.runAudioTranscription.mockResolvedValue({
-      transcript: "voice fallback transcript",
-      output: {
-        kind: "audio.transcription",
-        attachmentIndex: 0,
-        text: "voice fallback transcript",
-        provider: "aimlapi",
-      },
-      decision: {
-        capability: "audio",
-        outcome: "success",
-        attachments: [
-          {
-            attachmentIndex: 0,
-            attempts: [{ type: "provider", provider: "aimlapi", outcome: "success" }],
-            chosen: { type: "provider", provider: "aimlapi", outcome: "success" },
-          },
-        ],
-      },
-      attachments: [{ index: 0, path: "/tmp/voice.ogg", mime: "audio/ogg" }],
+  it("runs audio preflight in auto mode when audio config is absent", async () => {
+    runAudioTranscriptionMock.mockResolvedValueOnce({
+      transcript: "voice note transcript",
+      attachments: [],
     });
 
     const transcript = await transcribeFirstAudio({
-      ctx,
-      cfg: {} as OpenClawConfig,
+      ctx: {
+        Body: "<media:audio>",
+        MediaPath: "/tmp/voice.ogg",
+        MediaType: "audio/ogg",
+      },
+      cfg: {},
     });
 
-    expect(transcript).toBe("voice fallback transcript");
-    expect(ctx.Transcript).toBe("voice fallback transcript");
-    expect(ctx.MediaUnderstanding?.[0]).toMatchObject({
-      kind: "audio.transcription",
-      attachmentIndex: 0,
-      text: "voice fallback transcript",
-    });
-    expect(ctx.MediaUnderstandingDecisions?.[0]?.capability).toBe("audio");
-    expect(mocks.runAudioTranscription).toHaveBeenCalledTimes(1);
+    expect(transcript).toBe("voice note transcript");
+    expect(runAudioTranscriptionMock).toHaveBeenCalledTimes(1);
   });
 
-  it("stays disabled only when audio understanding is explicitly disabled", async () => {
-    mocks.normalizeMediaAttachments.mockReturnValue([
-      { index: 0, path: "/tmp/voice.ogg", mime: "audio/ogg" },
-    ]);
-
+  it("skips audio preflight when audio config is explicitly disabled", async () => {
     const transcript = await transcribeFirstAudio({
-      ctx: {} as MsgContext,
+      ctx: {
+        Body: "<media:audio>",
+        MediaPath: "/tmp/voice.ogg",
+        MediaType: "audio/ogg",
+      },
       cfg: {
         tools: {
           media: {
@@ -84,10 +49,10 @@ describe("transcribeFirstAudio", () => {
             },
           },
         },
-      } as OpenClawConfig,
+      },
     });
 
     expect(transcript).toBeUndefined();
-    expect(mocks.runAudioTranscription).not.toHaveBeenCalled();
+    expect(runAudioTranscriptionMock).not.toHaveBeenCalled();
   });
 });

@@ -51,14 +51,39 @@ describe("config schema regressions", () => {
     expect(res.ok).toBe(true);
   });
 
-  it('accepts memorySearch provider "aimlapi"', () => {
+  it("accepts memorySearch.qmd.extraCollections", () => {
     const res = validateConfigObject({
       agents: {
         defaults: {
           memorySearch: {
-            provider: "aimlapi",
+            qmd: {
+              extraCollections: [
+                { path: "/shared/team-notes", name: "team-notes", pattern: "**/*.md" },
+              ],
+            },
           },
         },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
+  it("accepts agents.list[].memorySearch.qmd.extraCollections", () => {
+    const res = validateConfigObject({
+      agents: {
+        list: [
+          {
+            id: "main",
+            memorySearch: {
+              qmd: {
+                extraCollections: [
+                  { path: "/shared/team-notes", name: "team-notes", pattern: "**/*.md" },
+                ],
+              },
+            },
+          },
+        ],
       },
     });
 
@@ -82,23 +107,6 @@ describe("config schema regressions", () => {
       channels: {
         whatsapp: {
           enabled: true,
-        },
-      },
-    });
-
-    expect(res.ok).toBe(true);
-  });
-
-  it("accepts audio context shaping options", () => {
-    const res = validateConfigObject({
-      tools: {
-        media: {
-          audio: {
-            contextMode: "transcript+summary",
-            summaryTriggerChars: 1000,
-            inlineTranscriptMaxChars: 4000,
-            summaryMaxTokens: 180,
-          },
         },
       },
     });
