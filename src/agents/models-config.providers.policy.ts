@@ -1,10 +1,39 @@
 import {
+  applyModelStudioNativeStreamingUsageCompat,
+  isNativeModelStudioBaseUrl,
+} from "../plugin-sdk/modelstudio.js";
+import {
+  applyMoonshotNativeStreamingUsageCompat,
+  isNativeMoonshotBaseUrl,
+} from "../plugin-sdk/moonshot.js";
+import {
   applyProviderNativeStreamingUsageCompatWithPlugin,
   normalizeProviderConfigWithPlugin,
   resolveProviderConfigApiKeyWithPlugin,
   resolveProviderRuntimePlugin,
 } from "../plugins/provider-runtime.js";
 import type { ProviderConfig } from "./models-config.providers.secrets.js";
+
+/**
+ * URL-based fallback for streaming usage compat when no plugin claims the
+ * provider key. Users may register DashScope or Moonshot endpoints under
+ * arbitrary provider key names (e.g. "dashscope", "qwen", "kimi") while
+ * still pointing at the real native API. The plugin system resolves hooks
+ * by provider key, so such custom keys bypass the owning plugin entirely.
+ * This fallback checks the baseUrl directly and delegates to the correct
+ * plugin's compat function when the URL matches a known native endpoint.
+ */
+function applyNativeStreamingUsageCompatByUrl(
+  provider: ProviderConfig,
+): ProviderConfig | undefined {
+  if (isNativeModelStudioBaseUrl(provider.baseUrl)) {
+    return applyModelStudioNativeStreamingUsageCompat(provider);
+  }
+  if (isNativeMoonshotBaseUrl(provider.baseUrl)) {
+    return applyMoonshotNativeStreamingUsageCompat(provider);
+  }
+  return undefined;
+}
 
 export function applyNativeStreamingUsageCompat(
   providers: Record<string, ProviderConfig>,
@@ -13,6 +42,10 @@ export function applyNativeStreamingUsageCompat(
   const nextProviders: Record<string, ProviderConfig> = {};
 
   for (const [providerKey, provider] of Object.entries(providers)) {
+    // First, try the standard plugin-based hook (matches by provider key).
+    // If no plugin claims the key, fall back to URL-based detection so that
+    // native DashScope/Moonshot URLs get streaming usage enabled regardless
+    // of the provider key the user chose in their config.
     const nextProvider =
       applyProviderNativeStreamingUsageCompatWithPlugin({
         provider: providerKey,
@@ -20,7 +53,9 @@ export function applyNativeStreamingUsageCompat(
           provider: providerKey,
           providerConfig: provider,
         },
-      }) ?? provider;
+      }) ??
+      applyNativeStreamingUsageCompatByUrl(provider) ??
+      provider;
     nextProviders[providerKey] = nextProvider;
     changed ||= nextProvider !== provider;
   }
