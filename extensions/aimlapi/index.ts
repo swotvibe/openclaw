@@ -1,6 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createProviderApiKeyAuthMethod } from "openclaw/plugin-sdk/provider-auth-api-key";
-import { normalizeProviderId } from "openclaw/plugin-sdk/provider-models";
+import { normalizeProviderId } from "openclaw/plugin-sdk/provider-model-shared";
 import {
   buildAimlApiRuntimeModel,
   buildDefaultAimlApiChatModelDefinition,

@@ -2,12 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import type { NormalizedUsage, UsageLike } from "../agents/usage.js";
-import { normalizeUsage } from "../agents/usage.js";
+import { hasRecordedUsageValues, isZeroUsageSnapshot, normalizeUsage } from "../agents/usage.js";
 import { stripInboundMetadata } from "../auto-reply/reply/strip-inbound-meta.js";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   isPrimarySessionTranscriptFileName,
-  isSessionArchiveArtifactName,
   isUsageCountedSessionTranscriptFileName,
   parseSessionArchiveTimestamp,
   parseUsageCountedSessionIdFromFileName,
@@ -72,6 +71,8 @@ const emptyTotals = (): CostUsageTotals => ({
   cacheReadCost: 0,
   cacheWriteCost: 0,
   missingCostEntries: 0,
+  missingUsageEntries: 0,
+  estimatedCostEntries: 0,
 });
 
 const toFiniteNumber = (value: unknown): number | undefined => {
@@ -106,6 +107,20 @@ const extractCostBreakdown = (usageRaw?: UsageLike | null): CostBreakdown | unde
     cacheRead: toFiniteNumber(cost.cacheRead),
     cacheWrite: toFiniteNumber(cost.cacheWrite),
   };
+};
+
+const isZeroCostBreakdown = (costBreakdown: CostBreakdown | undefined): boolean => {
+  if (!costBreakdown) {
+    return false;
+  }
+  const values = [
+    costBreakdown.total,
+    costBreakdown.input,
+    costBreakdown.output,
+    costBreakdown.cacheRead,
+    costBreakdown.cacheWrite,
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return values.length > 0 && values.every((value) => value === 0);
 };
 
 const parseTimestamp = (entry: Record<string, unknown>): Date | undefined => {
@@ -149,8 +164,15 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
   const model =
     (typeof message.model === "string" ? message.model : undefined) ??
     (typeof entry.model === "string" ? entry.model : undefined);
+  const isDeliveryMirror = provider === "openclaw" && model === "delivery-mirror";
+  const usageMissing =
+    !isDeliveryMirror &&
+    usageRaw != null &&
+    (!hasRecordedUsageValues(usage) || isZeroUsageSnapshot(usage));
 
-  const costBreakdown = extractCostBreakdown(usageRaw);
+  const rawCostBreakdown = extractCostBreakdown(usageRaw);
+  const costBreakdown =
+    usageMissing && isZeroCostBreakdown(rawCostBreakdown) ? undefined : rawCostBreakdown;
   const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
   const durationMs = toFiniteNumber(message.durationMs ?? entry.durationMs);
 
@@ -160,6 +182,7 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
     timestamp: parseTimestamp(entry),
     durationMs,
     usage,
+    usageMissing,
     costTotal: costBreakdown?.total,
     costBreakdown,
     provider,
@@ -201,6 +224,49 @@ const applyUsageTotals = (totals: CostUsageTotals, usage: NormalizedUsage) => {
   totals.totalTokens += totalTokens;
 };
 
+const applyParsedUsage = (
+  totals: CostUsageTotals,
+  entry: Pick<ParsedTranscriptEntry, "usage" | "usageMissing">,
+) => {
+  if (entry.usageMissing) {
+    totals.missingUsageEntries += 1;
+  }
+  if (entry.usage && !entry.usageMissing) {
+    applyUsageTotals(totals, entry.usage);
+  }
+};
+
+const resolveEntryTokenTotal = (
+  entry: Pick<ParsedTranscriptEntry, "usage" | "usageMissing">,
+): number => {
+  if (!entry.usage || entry.usageMissing) {
+    return 0;
+  }
+  return (
+    entry.usage.total ??
+    (entry.usage.input ?? 0) +
+      (entry.usage.output ?? 0) +
+      (entry.usage.cacheRead ?? 0) +
+      (entry.usage.cacheWrite ?? 0)
+  );
+};
+
+const resolveEntryCostTotal = (
+  entry: Pick<ParsedTranscriptEntry, "costBreakdown" | "costTotal">,
+): number | undefined => {
+  return entry.costBreakdown?.total ?? entry.costTotal;
+};
+
+const hasTrackableUsageOrCost = (
+  entry: Pick<ParsedTranscriptEntry, "usage" | "usageMissing" | "costBreakdown" | "costTotal">,
+): boolean => {
+  return (
+    entry.usageMissing === true ||
+    resolveEntryTokenTotal(entry) > 0 ||
+    resolveEntryCostTotal(entry) !== undefined
+  );
+};
+
 const applyCostBreakdown = (totals: CostUsageTotals, costBreakdown: CostBreakdown | undefined) => {
   if (costBreakdown === undefined || costBreakdown.total === undefined) {
     return;
@@ -212,13 +278,30 @@ const applyCostBreakdown = (totals: CostUsageTotals, costBreakdown: CostBreakdow
   totals.cacheWriteCost += costBreakdown.cacheWrite ?? 0;
 };
 
-// Legacy function for backwards compatibility (no cost breakdown available)
-const applyCostTotal = (totals: CostUsageTotals, costTotal: number | undefined) => {
+const applyCostTotal = (
+  totals: CostUsageTotals,
+  costTotal: number | undefined,
+  estimated = false,
+) => {
   if (costTotal === undefined) {
     totals.missingCostEntries += 1;
     return;
   }
   totals.totalCost += costTotal;
+  if (estimated) {
+    totals.estimatedCostEntries += 1;
+  }
+};
+
+const applyParsedCost = (
+  totals: CostUsageTotals,
+  entry: Pick<ParsedTranscriptEntry, "costBreakdown" | "costTotal" | "costEstimated">,
+) => {
+  if (entry.costBreakdown?.total !== undefined) {
+    applyCostBreakdown(totals, entry.costBreakdown);
+    return;
+  }
+  applyCostTotal(totals, entry.costTotal, entry.costEstimated === true);
 };
 
 async function* readJsonlRecords(filePath: string): AsyncGenerator<Record<string, unknown>> {
@@ -257,13 +340,19 @@ async function scanTranscriptFile(params: {
       continue;
     }
 
-    if (entry.usage && entry.costTotal === undefined) {
+    if (
+      !entry.costBreakdown &&
+      entry.costTotal === undefined &&
+      entry.usage &&
+      !entry.usageMissing
+    ) {
       const cost = resolveModelCostConfig({
         provider: entry.provider,
         model: entry.model,
         config: params.config,
       });
       entry.costTotal = estimateUsageCost({ usage: entry.usage, cost });
+      entry.costEstimated = entry.costTotal !== undefined;
     }
 
     params.onEntry(entry);
@@ -279,11 +368,13 @@ async function scanUsageFile(params: {
     filePath: params.filePath,
     config: params.config,
     onEntry: (entry) => {
-      if (!entry.usage) {
+      if (!hasTrackableUsageOrCost(entry)) {
         return;
       }
       params.onEntry({
         usage: entry.usage,
+        usageMissing: entry.usageMissing,
+        costEstimated: entry.costEstimated,
         costTotal: entry.costTotal,
         costBreakdown: entry.costBreakdown,
         provider: entry.provider,
@@ -300,61 +391,72 @@ export function resolveExistingUsageSessionFile(params: {
   sessionFile?: string;
   agentId?: string;
 }): string | undefined {
-  const candidate =
-    params.sessionFile ??
-    (params.sessionId
-      ? resolveSessionFilePath(params.sessionId, params.sessionEntry, {
-          agentId: params.agentId,
-        })
-      : undefined);
+  const directSessionFile =
+    typeof params.sessionFile === "string" && params.sessionFile.trim()
+      ? params.sessionFile.trim()
+      : typeof params.sessionEntry?.sessionFile === "string" &&
+          params.sessionEntry.sessionFile.trim()
+        ? params.sessionEntry.sessionFile.trim()
+        : undefined;
 
-  if (candidate && fs.existsSync(candidate)) {
-    return candidate;
-  }
-
-  const sessionId = params.sessionId?.trim();
+  const sessionId = params.sessionId?.trim() || params.sessionEntry?.sessionId?.trim();
   if (!sessionId) {
-    return candidate;
-  }
-
-  try {
-    const sessionsDir = candidate
-      ? path.dirname(candidate)
-      : resolveSessionTranscriptsDirForAgent(params.agentId);
-    const baseFileName = `${sessionId}.jsonl`;
-    const entries = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((entry) => {
-      return (
-        entry.isFile() &&
-        (entry.name === baseFileName ||
-          entry.name.startsWith(`${baseFileName}.reset.`) ||
-          entry.name.startsWith(`${baseFileName}.deleted.`))
-      );
-    });
-
-    const primary = entries.find((entry) => entry.name === baseFileName);
-    if (primary) {
-      return path.join(sessionsDir, primary.name);
+    if (!directSessionFile) {
+      return undefined;
     }
-
-    const latestArchive = entries
-      .filter((entry) => isSessionArchiveArtifactName(entry.name))
-      .map((entry) => entry.name)
-      .toSorted((a, b) => {
-        const tsA =
-          parseSessionArchiveTimestamp(a, "deleted") ??
-          parseSessionArchiveTimestamp(a, "reset") ??
-          0;
-        const tsB =
-          parseSessionArchiveTimestamp(b, "deleted") ??
-          parseSessionArchiveTimestamp(b, "reset") ??
-          0;
-        return tsB - tsA || b.localeCompare(a);
-      })[0];
-
-    return latestArchive ? path.join(sessionsDir, latestArchive) : candidate;
-  } catch {
-    return candidate;
+    const preferredPath = path.isAbsolute(directSessionFile)
+      ? path.resolve(directSessionFile)
+      : path.resolve(directSessionFile);
+    return fs.existsSync(preferredPath) ? preferredPath : undefined;
   }
+
+  let preferredPath: string | undefined;
+  let sessionsDir: string | undefined;
+
+  if (directSessionFile && path.isAbsolute(directSessionFile)) {
+    preferredPath = path.resolve(directSessionFile);
+    sessionsDir = path.dirname(preferredPath);
+  } else {
+    preferredPath = resolveSessionFilePath(
+      sessionId,
+      directSessionFile ? { sessionFile: directSessionFile } : params.sessionEntry,
+      { agentId: params.agentId },
+    );
+    sessionsDir = path.dirname(preferredPath);
+  }
+
+  if (preferredPath && fs.existsSync(preferredPath)) {
+    return preferredPath;
+  }
+
+  const searchDir = sessionsDir ?? resolveSessionTranscriptsDirForAgent(params.agentId);
+  const candidates = fs
+    .readdirSync(searchDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && isUsageCountedSessionTranscriptFileName(entry.name))
+    .map((entry) => {
+      const candidateSessionId = parseUsageCountedSessionIdFromFileName(entry.name);
+      if (candidateSessionId !== sessionId) {
+        return null;
+      }
+      const filePath = path.join(searchDir, entry.name);
+      const stat = fs.statSync(filePath);
+      const archiveTimestamp = parseSessionArchiveTimestamp(entry.name)?.getTime() ?? stat.mtimeMs;
+      return {
+        filePath,
+        primary: isPrimarySessionTranscriptFileName(entry.name),
+        archiveTimestamp,
+        mtimeMs: stat.mtimeMs,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .toSorted(
+      (a, b) =>
+        Number(b.primary) - Number(a.primary) ||
+        b.archiveTimestamp - a.archiveTimestamp ||
+        b.mtimeMs - a.mtimeMs,
+    );
+
+  return candidates[0]?.filePath;
 }
 
 export async function loadCostUsageSummary(params?: {
@@ -373,12 +475,13 @@ export async function loadCostUsageSummary(params?: {
     untilTime = params.endMs;
   } else {
     // Fallback to days-based calculation for backwards compatibility
-    const days = Math.max(1, Math.floor(params?.days ?? 30));
-    const since = new Date(now);
-    since.setDate(since.getDate() - (days - 1));
-    sinceTime = since.getTime();
+    const days = params?.days ?? 30;
+    sinceTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).getTime();
     untilTime = now.getTime();
   }
+
+  const effectiveStartMs = sinceTime;
+  const effectiveEndMs = untilTime;
 
   const dailyMap = new Map<string, CostUsageTotals>();
   const totals = emptyTotals();
@@ -410,25 +513,23 @@ export async function loadCostUsageSummary(params?: {
       config: params?.config,
       onEntry: (entry) => {
         const ts = entry.timestamp?.getTime();
-        if (!ts || ts < sinceTime || ts > untilTime) {
+
+        // Filter by date range if specified
+        if (ts !== undefined && ts < effectiveStartMs) {
           return;
         }
+        if (ts !== undefined && ts > effectiveEndMs) {
+          return;
+        }
+
         const dayKey = formatDayKey(entry.timestamp ?? now);
         const bucket = dailyMap.get(dayKey) ?? emptyTotals();
-        applyUsageTotals(bucket, entry.usage);
-        if (entry.costBreakdown?.total !== undefined) {
-          applyCostBreakdown(bucket, entry.costBreakdown);
-        } else {
-          applyCostTotal(bucket, entry.costTotal);
-        }
+        applyParsedUsage(bucket, entry);
+        applyParsedCost(bucket, entry);
         dailyMap.set(dayKey, bucket);
 
-        applyUsageTotals(totals, entry.usage);
-        if (entry.costBreakdown?.total !== undefined) {
-          applyCostBreakdown(totals, entry.costBreakdown);
-        } else {
-          applyCostTotal(totals, entry.costTotal);
-        }
+        applyParsedUsage(totals, entry);
+        applyParsedCost(totals, entry);
       },
     });
   }
@@ -681,32 +782,20 @@ export async function loadSessionCostSummary(params: {
         dailyMessageMap.set(dayKey, daily);
       }
 
-      if (!entry.usage) {
+      const hasUsageOrCostData = entry.role === "assistant" && hasTrackableUsageOrCost(entry);
+
+      if (!hasUsageOrCostData) {
         return;
       }
 
-      applyUsageTotals(totals, entry.usage);
-      if (entry.costBreakdown?.total !== undefined) {
-        applyCostBreakdown(totals, entry.costBreakdown);
-      } else {
-        applyCostTotal(totals, entry.costTotal);
-      }
+      applyParsedUsage(totals, entry);
+      applyParsedCost(totals, entry);
 
-      if (entry.timestamp) {
+      const entryTokens = resolveEntryTokenTotal(entry);
+      const entryCost = resolveEntryCostTotal(entry) ?? 0;
+
+      if (entry.timestamp && (entryTokens > 0 || entryCost > 0)) {
         const dayKey = formatDayKey(entry.timestamp);
-        const entryTokens =
-          (entry.usage.input ?? 0) +
-          (entry.usage.output ?? 0) +
-          (entry.usage.cacheRead ?? 0) +
-          (entry.usage.cacheWrite ?? 0);
-        const entryCost =
-          entry.costBreakdown?.total ??
-          (entry.costBreakdown
-            ? (entry.costBreakdown.input ?? 0) +
-              (entry.costBreakdown.output ?? 0) +
-              (entry.costBreakdown.cacheRead ?? 0) +
-              (entry.costBreakdown.cacheWrite ?? 0)
-            : (entry.costTotal ?? 0));
 
         const existing = dailyMap.get(dayKey) ?? { tokens: 0, cost: 0 };
         dailyMap.set(dayKey, {
@@ -744,12 +833,8 @@ export async function loadSessionCostSummary(params: {
             totals: emptyTotals(),
           } as SessionModelUsage);
         existing.count += 1;
-        applyUsageTotals(existing.totals, entry.usage);
-        if (entry.costBreakdown?.total !== undefined) {
-          applyCostBreakdown(existing.totals, entry.costBreakdown);
-        } else {
-          applyCostTotal(existing.totals, entry.costTotal);
-        }
+        applyParsedUsage(existing.totals, entry);
+        applyParsedCost(existing.totals, entry);
         modelUsageMap.set(key, existing);
       }
     },
@@ -843,7 +928,12 @@ export async function loadSessionUsageTimeSeries(params: {
     config: params.config,
     onEntry: (entry) => {
       const ts = entry.timestamp?.getTime();
+
       if (!ts) {
+        return;
+      }
+
+      if (!entry.usage || entry.usageMissing) {
         return;
       }
 
@@ -852,7 +942,7 @@ export async function loadSessionUsageTimeSeries(params: {
       const cacheRead = entry.usage.cacheRead ?? 0;
       const cacheWrite = entry.usage.cacheWrite ?? 0;
       const totalTokens = entry.usage.total ?? input + output + cacheRead + cacheWrite;
-      const cost = entry.costTotal ?? 0;
+      const cost = resolveEntryCostTotal(entry) ?? 0;
 
       cumulativeTokens += totalTokens;
       cumulativeCost += cost;
@@ -865,6 +955,7 @@ export async function loadSessionUsageTimeSeries(params: {
         cacheWrite,
         totalTokens,
         cost,
+        ...(entry.costEstimated === true ? { costEstimated: true } : {}),
         cumulativeTokens,
         cumulativeCost,
       });
@@ -894,6 +985,7 @@ export async function loadSessionUsageTimeSeries(params: {
       let bucketCacheWrite = 0;
       let bucketTotalTokens = 0;
       let bucketCost = 0;
+      let bucketCostEstimated = false;
       for (const point of bucket) {
         bucketInput += point.input;
         bucketOutput += point.output;
@@ -901,6 +993,7 @@ export async function loadSessionUsageTimeSeries(params: {
         bucketCacheWrite += point.cacheWrite;
         bucketTotalTokens += point.totalTokens;
         bucketCost += point.cost;
+        bucketCostEstimated ||= point.costEstimated === true;
       }
 
       downsampledCumulativeTokens += bucketTotalTokens;
@@ -914,6 +1007,7 @@ export async function loadSessionUsageTimeSeries(params: {
         cacheWrite: bucketCacheWrite,
         totalTokens: bucketTotalTokens,
         cost: bucketCost,
+        ...(bucketCostEstimated ? { costEstimated: true } : {}),
         cumulativeTokens: downsampledCumulativeTokens,
         cumulativeCost: downsampledCumulativeCost,
       });
@@ -1037,30 +1131,24 @@ export async function loadSessionLogs(params: {
         timestamp = message.timestamp;
       }
 
-      // Get usage for assistant messages
       let tokens: number | undefined;
       let cost: number | undefined;
+      let costEstimated = false;
+      let usageMissing = false;
       if (role === "assistant") {
-        const usageRaw = message.usage as Record<string, unknown> | undefined;
-        const usage = normalizeUsage(usageRaw);
-        if (usage) {
-          tokens =
-            usage.total ??
-            (usage.input ?? 0) +
-              (usage.output ?? 0) +
-              (usage.cacheRead ?? 0) +
-              (usage.cacheWrite ?? 0);
-          const breakdown = extractCostBreakdown(usageRaw);
-          if (breakdown?.total !== undefined) {
-            cost = breakdown.total;
-          } else {
-            const costConfig = resolveModelCostConfig({
-              provider: message.provider as string | undefined,
-              model: message.model as string | undefined,
-              config: params.config,
-            });
-            cost = estimateUsageCost({ usage, cost: costConfig });
-          }
+        const parsedEntry = parseTranscriptEntry(parsed);
+        usageMissing = parsedEntry?.usageMissing === true;
+        tokens = parsedEntry ? resolveEntryTokenTotal(parsedEntry) || undefined : undefined;
+        cost = parsedEntry ? resolveEntryCostTotal(parsedEntry) : undefined;
+        costEstimated = parsedEntry?.costEstimated === true;
+        if (cost === undefined && parsedEntry?.usage && !parsedEntry.usageMissing) {
+          const costConfig = resolveModelCostConfig({
+            provider: message.provider as string | undefined,
+            model: message.model as string | undefined,
+            config: params.config,
+          });
+          cost = estimateUsageCost({ usage: parsedEntry.usage, cost: costConfig });
+          costEstimated = cost !== undefined;
         }
       }
 
@@ -1068,8 +1156,10 @@ export async function loadSessionLogs(params: {
         timestamp,
         role,
         content,
-        tokens,
-        cost,
+        ...(tokens !== undefined ? { tokens } : {}),
+        ...(cost !== undefined ? { cost } : {}),
+        ...(costEstimated ? { costEstimated: true } : {}),
+        ...(usageMissing ? { usageMissing: true } : {}),
       });
     } catch {
       // Ignore malformed lines

@@ -174,14 +174,12 @@ normalize_session_state_paths_for_container() {
 
   local normalized_count
   normalized_count="$(
-    find "$state_root" -type f -name 'sessions.json' -print0 | \
-      python3 - "$OPENCLAW_CONFIG_DIR" <<'PY'
+    python3 - "$state_root" <<'PY'
 import json
-import os
 import sys
 from pathlib import Path
 
-config_dir = Path(sys.argv[1])
+state_root = Path(sys.argv[1])
 count = 0
 
 def remap(value):
@@ -202,10 +200,9 @@ def walk(value):
         return [walk(remap(item)) for item in value]
     return remap(value)
 
-for raw_path in sys.stdin.buffer.read().split(b"\0"):
-    if not raw_path:
+for path in state_root.rglob("sessions.json"):
+    if not path.is_file():
         continue
-    path = Path(raw_path.decode("utf-8"))
     try:
         original = path.read_text(encoding="utf-8")
         parsed = json.loads(original)
@@ -290,6 +287,91 @@ run_runtime_cli() {
   esac
 
   docker compose "${compose_args[@]}" "${run_args[@]}" openclaw-cli "$@"
+}
+
+resolve_compose_scope_args() {
+  local compose_scope="${1:-current}"
+  case "$compose_scope" in
+    current) printf '%s\n' "${COMPOSE_ARGS[@]}" ;;
+    base) printf '%s\n' "${BASE_COMPOSE_ARGS[@]}" ;;
+    *) fail "Unknown compose scope: $compose_scope" ;;
+  esac
+}
+
+wait_for_gateway_service() {
+  local compose_scope="${1:-current}"
+  local timeout_seconds="${2:-120}"
+  local -a compose_args=()
+  local deadline=$((SECONDS + timeout_seconds))
+  local container_id=""
+  local inspect_state=""
+  local runtime_state=""
+  local health_state=""
+
+  while IFS= read -r arg; do
+    compose_args+=("$arg")
+  done < <(resolve_compose_scope_args "$compose_scope")
+
+  while (( SECONDS < deadline )); do
+    container_id="$(docker compose "${compose_args[@]}" ps -q openclaw-gateway 2>/dev/null | head -n 1)"
+    container_id="${container_id//$'\r'/}"
+
+    if [[ -z "$container_id" ]]; then
+      sleep 1
+      continue
+    fi
+
+    inspect_state="$(
+      docker inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true
+    )"
+    inspect_state="${inspect_state//$'\r'/}"
+    runtime_state="${inspect_state%%|*}"
+    if [[ "$inspect_state" == *"|"* ]]; then
+      health_state="${inspect_state#*|}"
+    else
+      health_state="unknown"
+    fi
+
+    if [[ "$runtime_state" == "running" && ( "$health_state" == "healthy" || "$health_state" == "none" ) ]]; then
+      return 0
+    fi
+
+    if [[ "$runtime_state" == "exited" || "$runtime_state" == "dead" ]]; then
+      break
+    fi
+
+    sleep 2
+  done
+
+  echo "ERROR: openclaw-gateway did not reach a running/healthy state." >&2
+  if [[ -n "$container_id" ]]; then
+    if [[ -n "$inspect_state" ]]; then
+      echo "Last known container state: $inspect_state" >&2
+    fi
+    docker compose "${compose_args[@]}" logs --tail 120 openclaw-gateway >&2 || true
+  fi
+  exit 1
+}
+
+start_gateway_service() {
+  local compose_scope="${1:-current}"
+  local recreate_mode="${2:-normal}"
+  local -a compose_args=()
+  local -a up_args=(up -d)
+
+  while IFS= read -r arg; do
+    compose_args+=("$arg")
+  done < <(resolve_compose_scope_args "$compose_scope")
+
+  if [[ "$recreate_mode" == "force-recreate" ]]; then
+    up_args+=(--force-recreate)
+  elif [[ "$recreate_mode" != "normal" ]]; then
+    fail "Unknown recreate mode: $recreate_mode"
+  fi
+
+  up_args+=(openclaw-gateway)
+  docker compose "${compose_args[@]}" "${up_args[@]}"
+  wait_for_gateway_service "$compose_scope" 120
 }
 
 contains_disallowed_chars() {
@@ -819,7 +901,7 @@ echo "Docs: https://docs.openclaw.ai/channels"
 
 echo ""
 echo "==> Starting gateway"
-docker compose "${COMPOSE_ARGS[@]}" up -d openclaw-gateway
+start_gateway_service current
 
 # --- Sandbox setup (opt-in via OPENCLAW_SANDBOX=1) ---
 if [[ -n "$SANDBOX_ENABLED" ]]; then
@@ -901,7 +983,7 @@ if [[ -n "$SANDBOX_ENABLED" ]]; then
     echo "Sandbox enabled: mode=non-main, scope=agent, workspaceAccess=none"
     echo "Docs: https://docs.openclaw.ai/gateway/sandboxing"
     # Restart gateway with sandbox compose overlay to pick up socket mount + config.
-    docker compose "${COMPOSE_ARGS[@]}" up -d openclaw-gateway
+    start_gateway_service current
   else
     echo "WARNING: Sandbox config was partially applied. Check errors above." >&2
     echo "  Skipping gateway restart to avoid exposing Docker socket without a full sandbox policy." >&2
@@ -915,7 +997,7 @@ if [[ -n "$SANDBOX_ENABLED" ]]; then
       rm -f "$SANDBOX_COMPOSE_FILE"
     fi
     # Ensure gateway service definition is reset without sandbox overlay mount.
-    docker compose "${BASE_COMPOSE_ARGS[@]}" up -d --force-recreate openclaw-gateway
+    start_gateway_service base force-recreate
   fi
 else
   # Keep reruns deterministic: if sandbox is not active for this run, reset

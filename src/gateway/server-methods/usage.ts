@@ -537,6 +537,8 @@ export const usageHandlers: GatewayRequestHandlers = {
       cacheReadCost: 0,
       cacheWriteCost: 0,
       missingCostEntries: 0,
+      missingUsageEntries: 0,
+      estimatedCostEntries: 0,
     };
     const aggregateMessages: SessionMessageCounts = {
       total: 0,
@@ -587,6 +589,8 @@ export const usageHandlers: GatewayRequestHandlers = {
       cacheReadCost: 0,
       cacheWriteCost: 0,
       missingCostEntries: 0,
+      missingUsageEntries: 0,
+      estimatedCostEntries: 0,
     });
     const mergeTotals = (
       target: CostUsageSummary["totals"],
@@ -603,6 +607,8 @@ export const usageHandlers: GatewayRequestHandlers = {
       target.cacheReadCost += source.cacheReadCost;
       target.cacheWriteCost += source.cacheWriteCost;
       target.missingCostEntries += source.missingCostEntries;
+      target.missingUsageEntries += source.missingUsageEntries;
+      target.estimatedCostEntries += source.estimatedCostEntries;
     };
 
     for (const merged of limitedEntries) {
@@ -629,6 +635,8 @@ export const usageHandlers: GatewayRequestHandlers = {
         aggregateTotals.cacheReadCost += usage.cacheReadCost;
         aggregateTotals.cacheWriteCost += usage.cacheWriteCost;
         aggregateTotals.missingCostEntries += usage.missingCostEntries;
+        aggregateTotals.missingUsageEntries += usage.missingUsageEntries;
+        aggregateTotals.estimatedCostEntries += usage.estimatedCostEntries;
       }
 
       const channel = merged.storeEntry?.channel ?? merged.storeEntry?.origin?.provider;

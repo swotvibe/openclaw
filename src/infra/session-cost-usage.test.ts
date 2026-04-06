@@ -143,6 +143,103 @@ describe("session cost usage", () => {
     expect(summary?.lastActivity).toBeGreaterThan(0);
   });
 
+  it("tracks missing usage snapshots separately from estimated cost fallback", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-cost-missing-usage-"));
+    const sessionFile = path.join(root, "session.jsonl");
+    const now = new Date();
+
+    await fs.writeFile(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: "message",
+          timestamp: now.toISOString(),
+          message: {
+            role: "assistant",
+            provider: "openai",
+            model: "gpt-5.4",
+            content: "answer without measured usage",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          timestamp: now.toISOString(),
+          message: {
+            role: "assistant",
+            provider: "openai",
+            model: "gpt-5.4",
+            content: "answer with estimated cost",
+            usage: {
+              input: 10,
+              output: 5,
+              totalTokens: 15,
+            },
+          },
+        }),
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config = {
+      models: {
+        providers: {
+          openai: {
+            models: [
+              {
+                id: "gpt-5.4",
+                cost: {
+                  input: 1000,
+                  output: 2000,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+              },
+            ],
+          },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const summary = await loadSessionCostSummary({ sessionFile, config });
+    const timeseries = await loadSessionUsageTimeSeries({ sessionFile, config });
+    const logs = await loadSessionLogs({ sessionFile, config });
+
+    expect(summary?.totalTokens).toBe(15);
+    expect(summary?.totalCost).toBeCloseTo(0.02, 8);
+    expect(summary?.missingUsageEntries).toBe(1);
+    expect(summary?.missingCostEntries).toBe(1);
+    expect(summary?.estimatedCostEntries).toBe(1);
+
+    expect(timeseries?.points).toHaveLength(1);
+    expect(timeseries?.points[0]).toMatchObject({
+      totalTokens: 15,
+      cost: 0.02,
+      costEstimated: true,
+    });
+
+    expect(logs).toHaveLength(2);
+    expect(logs?.[0]).toMatchObject({
+      role: "assistant",
+      usageMissing: true,
+    });
+    expect(logs?.[0]?.tokens).toBeUndefined();
+    expect(logs?.[0]?.cost).toBeUndefined();
+    expect(logs?.[1]).toMatchObject({
+      role: "assistant",
+      tokens: 15,
+      cost: 0.02,
+      costEstimated: true,
+    });
+  });
+
   it("captures message counts, tool usage, and model usage", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-cost-session-meta-"));
     const sessionFile = path.join(root, "session.jsonl");

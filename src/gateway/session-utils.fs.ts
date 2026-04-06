@@ -1,5 +1,11 @@
 import fs from "node:fs";
-import { deriveSessionTotalTokens, hasNonzeroUsage, normalizeUsage } from "../agents/usage.js";
+import {
+  deriveSessionTotalTokens,
+  hasNonzeroUsage,
+  hasRecordedUsageValues,
+  isZeroUsageSnapshot,
+  normalizeUsage,
+} from "../agents/usage.js";
 import { jsonUtf8Bytes } from "../infra/json-utf8-bytes.js";
 import { hasInterSessionUserProvenance } from "../sessions/input-provenance.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
@@ -421,6 +427,7 @@ export type SessionTranscriptUsageSnapshot = {
   totalTokens?: number;
   totalTokensFresh?: boolean;
   costUsd?: number;
+  missingUsageEntries?: number;
 };
 
 function extractTranscriptUsageCost(raw: unknown): number | undefined {
@@ -437,6 +444,10 @@ function extractTranscriptUsageCost(raw: unknown): number | undefined {
 
 function resolvePositiveUsageNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function isZeroUsageCost(value: number | undefined): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value === 0;
 }
 
 function extractLatestUsageFromTranscriptChunk(
@@ -477,8 +488,13 @@ function extractLatestUsageFromTranscriptChunk(
             ? parsed.usage
             : undefined;
       const usage = normalizeUsage(usageRaw);
-      const totalTokens = resolvePositiveUsageNumber(deriveSessionTotalTokens({ usage }));
-      const costUsd = extractTranscriptUsageCost(usageRaw);
+      const usageMissing =
+        usageRaw != null && (!hasRecordedUsageValues(usage) || isZeroUsageSnapshot(usage));
+      const totalTokens = usageMissing
+        ? undefined
+        : resolvePositiveUsageNumber(deriveSessionTotalTokens({ usage }));
+      const rawCostUsd = extractTranscriptUsageCost(usageRaw);
+      const costUsd = usageMissing && isZeroUsageCost(rawCostUsd) ? undefined : rawCostUsd;
       const modelProvider =
         typeof message.provider === "string"
           ? message.provider.trim()
@@ -492,10 +508,10 @@ function extractLatestUsageFromTranscriptChunk(
             ? parsed.model.trim()
             : undefined;
       const isDeliveryMirror = modelProvider === "openclaw" && model === "delivery-mirror";
+      const hasUsageTokens =
+        !usageMissing && (hasNonzeroUsage(usage) || typeof totalTokens === "number");
       const hasMeaningfulUsage =
-        hasNonzeroUsage(usage) ||
-        typeof totalTokens === "number" ||
-        (typeof costUsd === "number" && Number.isFinite(costUsd));
+        hasUsageTokens || (typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd > 0);
       const hasModelIdentity = Boolean(modelProvider || model);
       if (!hasMeaningfulUsage && !hasModelIdentity) {
         continue;
@@ -505,6 +521,9 @@ function extractLatestUsageFromTranscriptChunk(
       }
 
       sawSnapshot = true;
+      if (usageMissing && !isDeliveryMirror) {
+        snapshot.missingUsageEntries = (snapshot.missingUsageEntries ?? 0) + 1;
+      }
       if (!isDeliveryMirror) {
         if (modelProvider) {
           snapshot.modelProvider = modelProvider;
@@ -513,19 +532,27 @@ function extractLatestUsageFromTranscriptChunk(
           snapshot.model = model;
         }
       }
-      if (typeof usage?.input === "number" && Number.isFinite(usage.input)) {
+      if (!usageMissing && typeof usage?.input === "number" && Number.isFinite(usage.input)) {
         inputTokens += usage.input;
         sawInputTokens = true;
       }
-      if (typeof usage?.output === "number" && Number.isFinite(usage.output)) {
+      if (!usageMissing && typeof usage?.output === "number" && Number.isFinite(usage.output)) {
         outputTokens += usage.output;
         sawOutputTokens = true;
       }
-      if (typeof usage?.cacheRead === "number" && Number.isFinite(usage.cacheRead)) {
+      if (
+        !usageMissing &&
+        typeof usage?.cacheRead === "number" &&
+        Number.isFinite(usage.cacheRead)
+      ) {
         cacheRead += usage.cacheRead;
         sawCacheRead = true;
       }
-      if (typeof usage?.cacheWrite === "number" && Number.isFinite(usage.cacheWrite)) {
+      if (
+        !usageMissing &&
+        typeof usage?.cacheWrite === "number" &&
+        Number.isFinite(usage.cacheWrite)
+      ) {
         cacheWrite += usage.cacheWrite;
         sawCacheWrite = true;
       }

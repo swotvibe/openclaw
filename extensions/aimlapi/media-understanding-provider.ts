@@ -1,15 +1,17 @@
 import {
-  assertOkOrThrowHttpError,
   describeImageWithModel,
   describeImagesWithModel,
-  normalizeBaseUrl,
-  postJsonRequest,
-  postTranscriptionRequest,
-  requireTranscriptionText,
   type AudioTranscriptionRequest,
   type AudioTranscriptionResult,
   type MediaUnderstandingProvider,
 } from "openclaw/plugin-sdk/media-understanding";
+import {
+  assertOkOrThrowHttpError,
+  normalizeBaseUrl,
+  postJsonRequest,
+  postTranscriptionRequest,
+  requireTranscriptionText,
+} from "openclaw/plugin-sdk/provider-http";
 import {
   AIMLAPI_BASE_URL,
   DEFAULT_AIMLAPI_STT_MODEL,

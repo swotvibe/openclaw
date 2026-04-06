@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   installPinnedHostnameTestHooks,
   resolveRequestUrl,
-} from "../../src/media-understanding/providers/audio.test-helpers.js";
+} from "../../src/media-understanding/audio.test-helpers.js";
 import { transcribeAimlApiAudio } from "./media-understanding-provider.js";
 
 installPinnedHostnameTestHooks();

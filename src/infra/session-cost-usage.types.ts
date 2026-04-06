@@ -13,7 +13,9 @@ export type CostBreakdown = {
 };
 
 export type ParsedUsageEntry = {
-  usage: NormalizedUsage;
+  usage?: NormalizedUsage;
+  usageMissing?: boolean;
+  costEstimated?: boolean;
   costTotal?: number;
   costBreakdown?: CostBreakdown;
   provider?: string;
@@ -27,6 +29,8 @@ export type ParsedTranscriptEntry = {
   timestamp?: Date;
   durationMs?: number;
   usage?: NormalizedUsage;
+  usageMissing?: boolean;
+  costEstimated?: boolean;
   costTotal?: number;
   costBreakdown?: CostBreakdown;
   provider?: string;
@@ -49,6 +53,8 @@ export type CostUsageTotals = {
   cacheReadCost: number;
   cacheWriteCost: number;
   missingCostEntries: number;
+  missingUsageEntries: number;
+  estimatedCostEntries: number;
 };
 
 export type CostUsageDailyEntry = CostUsageTotals & {
@@ -155,4 +161,6 @@ export type SessionLogEntry = {
   content: string;
   tokens?: number;
   cost?: number;
+  costEstimated?: boolean;
+  usageMissing?: boolean;
 };

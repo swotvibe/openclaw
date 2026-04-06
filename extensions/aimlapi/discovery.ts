@@ -3,7 +3,10 @@ import type {
   ProviderNormalizeResolvedModelContext,
   ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/core";
-import { DEFAULT_CONTEXT_TOKENS, normalizeModelCompat } from "openclaw/plugin-sdk/provider-models";
+import {
+  DEFAULT_CONTEXT_TOKENS,
+  normalizeModelCompat,
+} from "openclaw/plugin-sdk/provider-model-shared";
 import type {
   ModelApi,
   ModelDefinitionConfig,

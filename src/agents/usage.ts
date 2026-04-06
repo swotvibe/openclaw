@@ -85,6 +85,25 @@ export function hasNonzeroUsage(usage?: NormalizedUsage | null): usage is Normal
   );
 }
 
+export function hasRecordedUsageValues(usage?: NormalizedUsage | null): usage is NormalizedUsage {
+  if (!usage) {
+    return false;
+  }
+  return [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.total].some(
+    (v) => typeof v === "number" && Number.isFinite(v),
+  );
+}
+
+export function isZeroUsageSnapshot(usage?: NormalizedUsage | null): usage is NormalizedUsage {
+  if (!usage) {
+    return false;
+  }
+  const values = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite, usage.total].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  return values.length > 0 && values.every((v) => v === 0);
+}
+
 export function normalizeUsage(raw?: UsageLike | null): NormalizedUsage | undefined {
   if (!raw) {
     return undefined;

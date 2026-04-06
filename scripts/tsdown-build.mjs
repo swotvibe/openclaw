@@ -8,7 +8,9 @@ import { BUNDLED_PLUGIN_PATH_PREFIX } from "./lib/bundled-plugin-paths.mjs";
 const logLevel = process.env.OPENCLAW_BUILD_VERBOSE ? "info" : "warn";
 const extraArgs = process.argv.slice(2);
 const INEFFECTIVE_DYNAMIC_IMPORT_RE = /\[INEFFECTIVE_DYNAMIC_IMPORT\]/;
+const MISSING_EXPORT_RE = /\[MISSING_EXPORT\]/;
 const UNRESOLVED_IMPORT_RE = /\[UNRESOLVED_IMPORT\]/;
+const PLUGIN_SDK_IMPORT_RE = /openclaw\/plugin-sdk\//;
 const ANSI_ESCAPE_RE = new RegExp(String.raw`\u001B\[[0-9;]*m`, "g");
 
 function removeDistPluginNodeModulesSymlinks(rootDir) {
@@ -61,6 +63,31 @@ function findFatalUnresolvedImport(lines) {
   return null;
 }
 
+function findMissingExport(lines) {
+  for (const line of lines) {
+    if (!MISSING_EXPORT_RE.test(line)) {
+      continue;
+    }
+    return line.replace(ANSI_ESCAPE_RE, "");
+  }
+
+  return null;
+}
+
+function findFatalPluginSdkUnresolvedImport(lines) {
+  for (const line of lines) {
+    if (!UNRESOLVED_IMPORT_RE.test(line)) {
+      continue;
+    }
+    const normalizedLine = line.replace(ANSI_ESCAPE_RE, "");
+    if (PLUGIN_SDK_IMPORT_RE.test(normalizedLine)) {
+      return normalizedLine;
+    }
+  }
+
+  return null;
+}
+
 const result = spawnSync(
   "pnpm",
   ["exec", "tsdown", "--config-loader", "unrun", "--logLevel", logLevel, ...extraArgs],
@@ -89,6 +116,24 @@ if (result.status === 0 && INEFFECTIVE_DYNAMIC_IMPORT_RE.test(`${stdout}\n${stde
 
 const fatalUnresolvedImport =
   result.status === 0 ? findFatalUnresolvedImport(`${stdout}\n${stderr}`.split("\n")) : null;
+const missingExport =
+  result.status === 0 ? findMissingExport(`${stdout}\n${stderr}`.split("\n")) : null;
+const fatalPluginSdkUnresolvedImport =
+  result.status === 0
+    ? findFatalPluginSdkUnresolvedImport(`${stdout}\n${stderr}`.split("\n"))
+    : null;
+
+if (missingExport) {
+  console.error(`Build emitted [MISSING_EXPORT]: ${missingExport}`);
+  process.exit(1);
+}
+
+if (fatalPluginSdkUnresolvedImport) {
+  console.error(
+    `Build emitted [UNRESOLVED_IMPORT] for plugin-sdk contract: ${fatalPluginSdkUnresolvedImport}`,
+  );
+  process.exit(1);
+}
 
 if (fatalUnresolvedImport) {
   console.error(`Build emitted [UNRESOLVED_IMPORT] outside extensions: ${fatalUnresolvedImport}`);

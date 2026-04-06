@@ -778,6 +778,34 @@ describe("readLatestSessionUsageFromTranscript", () => {
 
     expect(readLatestSessionUsageFromTranscript(sessionId, storePath)).toBeNull();
   });
+
+  test("treats zeroed assistant usage snapshots as missing usage", () => {
+    const sessionId = "usage-missing";
+    writeTranscript(tmpDir, sessionId, [
+      { type: "session", version: 1, id: sessionId },
+      {
+        message: {
+          role: "assistant",
+          provider: "openai",
+          model: "gpt-5.4",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+        },
+      },
+    ]);
+
+    expect(readLatestSessionUsageFromTranscript(sessionId, storePath)).toEqual({
+      modelProvider: "openai",
+      model: "gpt-5.4",
+      missingUsageEntries: 1,
+    });
+  });
 });
 
 describe("resolveSessionTranscriptCandidates", () => {

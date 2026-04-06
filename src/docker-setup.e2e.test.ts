@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
+const TEST_GATEWAY_PORT = "31879";
+const TEST_BRIDGE_PORT = "31880";
 
 type DockerSetupSandbox = {
   rootDir: string;
@@ -31,7 +33,21 @@ if [[ "\${1:-}" == "build" ]]; then
   echo "build DOCKER_BUILDKIT=\${DOCKER_BUILDKIT:-} $*" >>"$log"
   exit 0
 fi
+if [[ "\${1:-}" == "inspect" ]]; then
+  if [[ -n "$fail_match" && "$*" == *"$fail_match"* ]]; then
+    echo "inspect-fail $*" >>"$log"
+    exit 1
+  fi
+  echo "inspect $*" >>"$log"
+  printf '%s\n' "\${DOCKER_STUB_INSPECT_OUTPUT:-running|healthy}"
+  exit 0
+fi
 if [[ "\${1:-}" == "compose" ]]; then
+  if [[ "$*" == *" ps -q openclaw-gateway"* ]]; then
+    echo "compose $*" >>"$log"
+    printf '%s\n' "\${DOCKER_STUB_GATEWAY_CONTAINER_ID:-stub-gateway}"
+    exit 0
+  fi
   if [[ -n "$fail_match" && "$*" == *"$fail_match"* ]]; then
     echo "compose-fail $*" >>"$log"
     exit 1
@@ -83,6 +99,8 @@ function createEnv(
     OPENCLAW_GATEWAY_TOKEN: "test-token",
     OPENCLAW_CONFIG_DIR: join(sandbox.rootDir, "config"),
     OPENCLAW_WORKSPACE_DIR: join(sandbox.rootDir, "openclaw"),
+    OPENCLAW_GATEWAY_PORT: TEST_GATEWAY_PORT,
+    OPENCLAW_BRIDGE_PORT: TEST_BRIDGE_PORT,
   };
 
   for (const [key, value] of Object.entries(overrides)) {
@@ -236,7 +254,7 @@ describe("scripts/docker/setup.sh", () => {
       "run --rm --no-deps --entrypoint node openclaw-gateway dist/index.js config set gateway.bind lan",
     );
     expect(log).toContain(
-      'run --rm --no-deps --entrypoint node openclaw-gateway dist/index.js config set gateway.controlUi.allowedOrigins ["http://localhost:18789","http://127.0.0.1:18789"] --strict-json',
+      `run --rm --no-deps --entrypoint node openclaw-gateway dist/index.js config set gateway.controlUi.allowedOrigins ["http://localhost:${TEST_GATEWAY_PORT}","http://127.0.0.1:${TEST_GATEWAY_PORT}"] --strict-json`,
     );
     expect(log).not.toContain("run --rm openclaw-cli onboard --mode local --no-install-daemon");
   });
@@ -256,6 +274,79 @@ describe("scripts/docker/setup.sh", () => {
     expect(prestartLines.some((line) => /\bcompose\b.*\brun\b.*\bopenclaw-cli\b/.test(line))).toBe(
       false,
     );
+  });
+
+  it("waits for the gateway container to reach running/healthy after startup", async () => {
+    const activeSandbox = requireSandbox(sandbox);
+
+    await resetDockerLog(activeSandbox);
+    const result = runDockerSetup(activeSandbox);
+    expect(result.status).toBe(0);
+
+    const lines = await readDockerLogLines(activeSandbox);
+    const gatewayStartIdx = findGatewayStartLineIndex(lines);
+    expect(gatewayStartIdx).toBeGreaterThanOrEqual(0);
+
+    const gatewayReadyChecks = lines.slice(gatewayStartIdx + 1);
+    expect(
+      gatewayReadyChecks.some(
+        (line) => line.includes("compose") && line.includes("ps -q openclaw-gateway"),
+      ),
+    ).toBe(true);
+    expect(gatewayReadyChecks.some((line) => line.includes("inspect --format"))).toBe(true);
+  });
+
+  it("normalizes session store paths without tripping pipefail when sessions exist", async () => {
+    const activeSandbox = requireSandbox(sandbox);
+    const configDir = join(activeSandbox.rootDir, "config-sessions");
+    const workspaceDir = join(activeSandbox.rootDir, "workspace-sessions");
+    const sessionsPath = join(configDir, "agents", "custom", "sessions.json");
+
+    await mkdir(join(configDir, "agents", "custom"), { recursive: true });
+    await writeFile(
+      sessionsPath,
+      `${JSON.stringify(
+        {
+          cwd: "/home/ubuntu/opt/openclaw",
+          home: "/home/ubuntu",
+          stateDir: "/home/ubuntu/.openclaw/agents/custom",
+          nested: {
+            workspace: "/home/ubuntu/.openclaw/workspace/demo",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await resetDockerLog(activeSandbox);
+    const result = runDockerSetup(activeSandbox, {
+      OPENCLAW_CONFIG_DIR: configDir,
+      OPENCLAW_WORKSPACE_DIR: workspaceDir,
+    });
+
+    expect(result.status).toBe(0);
+    const normalized = await readFile(sessionsPath, "utf8");
+    expect(normalized).toContain('"/app"');
+    expect(normalized).toContain('"/home/node"');
+    expect(normalized).toContain('"/home/node/.openclaw/agents/custom"');
+    expect(normalized).toContain('"/home/node/.openclaw/workspace/demo"');
+  });
+
+  it("fails when the gateway container exits instead of becoming healthy", async () => {
+    const activeSandbox = requireSandbox(sandbox);
+
+    await resetDockerLog(activeSandbox);
+    const result = runDockerSetup(activeSandbox, {
+      DOCKER_STUB_INSPECT_OUTPUT: "exited|none",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("did not reach a running/healthy state");
+
+    const log = await readDockerLog(activeSandbox);
+    expect(log).toContain("compose compose -f");
+    expect(log).toContain("logs --tail 120 openclaw-gateway");
   });
 
   it("forces BuildKit for local and sandbox docker builds", async () => {
@@ -348,7 +439,7 @@ describe("scripts/docker/setup.sh", () => {
     const activeSandbox = requireSandbox(sandbox);
     await writeFile(
       join(activeSandbox.rootDir, ".env"),
-      "OPENCLAW_GATEWAY_TOKEN=dotenv-token-123\nOPENCLAW_GATEWAY_PORT=18789\n", // pragma: allowlist secret
+      `OPENCLAW_GATEWAY_TOKEN=dotenv-token-123\nOPENCLAW_GATEWAY_PORT=${TEST_GATEWAY_PORT}\n`, // pragma: allowlist secret
     );
     const { result, envFile } = await runDockerSetupWithUnsetGatewayToken(
       activeSandbox,

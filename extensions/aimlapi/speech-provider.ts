@@ -2,12 +2,14 @@ import {
   ensureAuthProfileStore,
   hasUsableCustomProviderApiKey,
   listProfilesForProvider,
-  OPENAI_TTS_VOICES,
   resolveApiKeyForProvider,
   resolveEnvApiKey,
 } from "openclaw/plugin-sdk/agent-runtime";
 import type { SpeechProviderPlugin } from "openclaw/plugin-sdk/core";
-import { resolveOpenAITtsInstructions } from "openclaw/plugin-sdk/voice-call";
+import {
+  OPENAI_COMPATIBLE_TTS_VOICES,
+  resolveOpenAiCompatibleTtsInstructions,
+} from "./openai-compatible-tts.js";
 import {
   AIMLAPI_PROVIDER_ID,
   DEFAULT_AIMLAPI_TTS_MODEL,
@@ -32,8 +34,9 @@ export function buildAimlApiSpeechProvider(): SpeechProviderPlugin {
     id: AIMLAPI_PROVIDER_ID,
     label: "AIMLAPI",
     models: AIMLAPI_TTS_MODELS,
-    voices: OPENAI_TTS_VOICES,
-    listVoices: async () => OPENAI_TTS_VOICES.map((voice) => ({ id: voice, name: voice })),
+    voices: OPENAI_COMPATIBLE_TTS_VOICES,
+    listVoices: async () =>
+      OPENAI_COMPATIBLE_TTS_VOICES.map((voice) => ({ id: voice, name: voice })),
     isConfigured: ({ cfg }) =>
       hasUsableCustomProviderApiKey(cfg, AIMLAPI_PROVIDER_ID) ||
       Boolean(resolveEnvApiKey(AIMLAPI_PROVIDER_ID)) ||
@@ -49,7 +52,10 @@ export function buildAimlApiSpeechProvider(): SpeechProviderPlugin {
         DEFAULT_AIMLAPI_TTS_MODEL,
       );
       const voice = req.overrides?.openai?.voice ?? req.config.openai.voice;
-      const instructions = resolveOpenAITtsInstructions(model, req.config.openai.instructions);
+      const instructions = resolveOpenAiCompatibleTtsInstructions(
+        model,
+        req.config.openai.instructions,
+      );
       const baseUrl = resolveAimlApiBaseUrl(req.cfg).replace(/\/+$/, "");
 
       const response = await fetch(`${baseUrl}/tts`, {
