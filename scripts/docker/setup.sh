@@ -105,152 +105,36 @@ read_env_gateway_token() {
   fi
 }
 
-normalize_config_paths_for_container() {
-  local config_path="$OPENCLAW_CONFIG_DIR/openclaw.json"
-  if [[ ! -f "$config_path" ]]; then
-    return 0
+sync_gateway_config() {
+  local allowed_origin_json=""
+  local current_allowed_origins=""
+  local batch_json=""
+
+  if [[ "${OPENCLAW_GATEWAY_BIND}" != "loopback" ]]; then
+    allowed_origin_json="$(printf '["http://localhost:%s","http://127.0.0.1:%s"]' "$OPENCLAW_GATEWAY_PORT" "$OPENCLAW_GATEWAY_PORT")"
+    current_allowed_origins="$(
+      run_prestart_cli config get gateway.controlUi.allowedOrigins 2>/dev/null || true
+    )"
+    current_allowed_origins="${current_allowed_origins//$'\r'/}"
   fi
 
-  local tmp
-  tmp="$(mktemp)"
-  python3 - "$config_path" "$tmp" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-config_path = Path(sys.argv[1])
-tmp_path = Path(sys.argv[2])
-
-cfg = json.loads(config_path.read_text(encoding="utf-8"))
-changed = False
-
-def remap(value):
-    global changed
-    if not isinstance(value, str):
-        return value
-    if value.startswith("/home/ubuntu/.openclaw"):
-        changed = True
-        return value.replace("/home/ubuntu/.openclaw", "/home/node/.openclaw", 1)
-    if value == "/home/ubuntu":
-        changed = True
-        return "/home/node"
-    return value
-
-agents = cfg.get("agents")
-if isinstance(agents, dict):
-    defaults = agents.get("defaults")
-    if isinstance(defaults, dict):
-        if "workspace" in defaults:
-            defaults["workspace"] = remap(defaults.get("workspace"))
-    items = agents.get("list")
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if "workspace" in item:
-                item["workspace"] = remap(item.get("workspace"))
-            if "agentDir" in item:
-                item["agentDir"] = remap(item.get("agentDir"))
-
-if changed:
-    tmp_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-else:
-    tmp_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
-PY
-
-  if ! cmp -s "$config_path" "$tmp"; then
-    mv "$tmp" "$config_path"
-    echo "Normalized OpenClaw config paths for Docker container HOME=/home/node"
-  else
-    rm -f "$tmp"
+  batch_json="$(printf '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"%s"}' "$OPENCLAW_GATEWAY_BIND")"
+  if [[ -n "$allowed_origin_json" ]]; then
+    if [[ -n "$current_allowed_origins" && "$current_allowed_origins" != "null" && "$current_allowed_origins" != "[]" ]]; then
+      echo "Control UI allowlist already configured; leaving gateway.controlUi.allowedOrigins unchanged."
+    else
+      batch_json+=",{\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":$allowed_origin_json}"
+    fi
   fi
-}
+  batch_json+="]"
 
-normalize_session_state_paths_for_container() {
-  local state_root="$OPENCLAW_CONFIG_DIR/agents"
-  if [[ ! -d "$state_root" ]]; then
-    return 0
-  fi
-
-  local normalized_count
-  normalized_count="$(
-    python3 - "$state_root" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-state_root = Path(sys.argv[1])
-count = 0
-
-def remap(value):
-    if not isinstance(value, str):
-        return value
-    if value.startswith("/home/ubuntu/.openclaw"):
-        return value.replace("/home/ubuntu/.openclaw", "/home/node/.openclaw", 1)
-    if value.startswith("/home/ubuntu/opt/openclaw"):
-        return value.replace("/home/ubuntu/opt/openclaw", "/app", 1)
-    if value == "/home/ubuntu":
-        return "/home/node"
-    return value
-
-def walk(value):
-    if isinstance(value, dict):
-        return {key: walk(remap(item)) for key, item in value.items()}
-    if isinstance(value, list):
-        return [walk(remap(item)) for item in value]
-    return remap(value)
-
-for path in state_root.rglob("sessions.json"):
-    if not path.is_file():
-        continue
-    try:
-        original = path.read_text(encoding="utf-8")
-        parsed = json.loads(original)
-    except Exception:
-        continue
-    normalized = walk(parsed)
-    rewritten = json.dumps(normalized, ensure_ascii=False, indent=2) + "\n"
-    if rewritten == original:
-        continue
-    path.write_text(rewritten, encoding="utf-8")
-    count += 1
-
-print(count)
-PY
-  )"
-  normalized_count="${normalized_count//$'\r'/}"
-  if [[ "${normalized_count:-0}" != "0" ]]; then
-    echo "Normalized $normalized_count session store file(s) for Docker container paths"
-  fi
-}
-
-ensure_control_ui_allowed_origins() {
-  if [[ "${OPENCLAW_GATEWAY_BIND}" == "loopback" ]]; then
-    return 0
-  fi
-
-  local allowed_origin_json
-  local current_allowed_origins
-  allowed_origin_json="$(printf '["http://localhost:%s","http://127.0.0.1:%s"]' "$OPENCLAW_GATEWAY_PORT" "$OPENCLAW_GATEWAY_PORT")"
-  current_allowed_origins="$(
-    run_prestart_cli config get gateway.controlUi.allowedOrigins 2>/dev/null || true
-  )"
-  current_allowed_origins="${current_allowed_origins//$'\r'/}"
-
-  if [[ -n "$current_allowed_origins" && "$current_allowed_origins" != "null" && "$current_allowed_origins" != "[]" ]]; then
-    echo "Control UI allowlist already configured; leaving gateway.controlUi.allowedOrigins unchanged."
-    return 0
-  fi
-
-  run_prestart_cli config set gateway.controlUi.allowedOrigins "$allowed_origin_json" --strict-json \
-    >/dev/null
-  echo "Set gateway.controlUi.allowedOrigins to $allowed_origin_json for non-loopback bind."
-}
-
-sync_gateway_mode_and_bind() {
-  run_prestart_cli config set gateway.mode local >/dev/null
-  run_prestart_cli config set gateway.bind "$OPENCLAW_GATEWAY_BIND" >/dev/null
+  run_prestart_cli config set --batch-json "$batch_json" >/dev/null
   echo "Pinned gateway.mode=local and gateway.bind=$OPENCLAW_GATEWAY_BIND for Docker setup."
+  if [[ -n "$allowed_origin_json" ]]; then
+    if [[ -z "$current_allowed_origins" || "$current_allowed_origins" == "null" || "$current_allowed_origins" == "[]" ]]; then
+      echo "Set gateway.controlUi.allowedOrigins to $allowed_origin_json for non-loopback bind."
+    fi
+  fi
 }
 
 run_prestart_gateway() {
@@ -289,91 +173,6 @@ run_runtime_cli() {
   docker compose "${compose_args[@]}" "${run_args[@]}" openclaw-cli "$@"
 }
 
-resolve_compose_scope_args() {
-  local compose_scope="${1:-current}"
-  case "$compose_scope" in
-    current) printf '%s\n' "${COMPOSE_ARGS[@]}" ;;
-    base) printf '%s\n' "${BASE_COMPOSE_ARGS[@]}" ;;
-    *) fail "Unknown compose scope: $compose_scope" ;;
-  esac
-}
-
-wait_for_gateway_service() {
-  local compose_scope="${1:-current}"
-  local timeout_seconds="${2:-120}"
-  local -a compose_args=()
-  local deadline=$((SECONDS + timeout_seconds))
-  local container_id=""
-  local inspect_state=""
-  local runtime_state=""
-  local health_state=""
-
-  while IFS= read -r arg; do
-    compose_args+=("$arg")
-  done < <(resolve_compose_scope_args "$compose_scope")
-
-  while (( SECONDS < deadline )); do
-    container_id="$(docker compose "${compose_args[@]}" ps -q openclaw-gateway 2>/dev/null | head -n 1)"
-    container_id="${container_id//$'\r'/}"
-
-    if [[ -z "$container_id" ]]; then
-      sleep 1
-      continue
-    fi
-
-    inspect_state="$(
-      docker inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true
-    )"
-    inspect_state="${inspect_state//$'\r'/}"
-    runtime_state="${inspect_state%%|*}"
-    if [[ "$inspect_state" == *"|"* ]]; then
-      health_state="${inspect_state#*|}"
-    else
-      health_state="unknown"
-    fi
-
-    if [[ "$runtime_state" == "running" && ( "$health_state" == "healthy" || "$health_state" == "none" ) ]]; then
-      return 0
-    fi
-
-    if [[ "$runtime_state" == "exited" || "$runtime_state" == "dead" ]]; then
-      break
-    fi
-
-    sleep 2
-  done
-
-  echo "ERROR: openclaw-gateway did not reach a running/healthy state." >&2
-  if [[ -n "$container_id" ]]; then
-    if [[ -n "$inspect_state" ]]; then
-      echo "Last known container state: $inspect_state" >&2
-    fi
-    docker compose "${compose_args[@]}" logs --tail 120 openclaw-gateway >&2 || true
-  fi
-  exit 1
-}
-
-start_gateway_service() {
-  local compose_scope="${1:-current}"
-  local recreate_mode="${2:-normal}"
-  local -a compose_args=()
-  local -a up_args=(up -d)
-
-  while IFS= read -r arg; do
-    compose_args+=("$arg")
-  done < <(resolve_compose_scope_args "$compose_scope")
-
-  if [[ "$recreate_mode" == "force-recreate" ]]; then
-    up_args+=(--force-recreate)
-  elif [[ "$recreate_mode" != "normal" ]]; then
-    fail "Unknown recreate mode: $recreate_mode"
-  fi
-
-  up_args+=(openclaw-gateway)
-  docker compose "${compose_args[@]}" "${up_args[@]}"
-  wait_for_gateway_service "$compose_scope" 120
-}
-
 contains_disallowed_chars() {
   local value="$1"
   [[ "$value" == *$'\n'* || "$value" == *$'\r'* || "$value" == *$'\t'* ]]
@@ -382,152 +181,6 @@ contains_disallowed_chars() {
 is_valid_timezone() {
   local value="$1"
   [[ -e "/usr/share/zoneinfo/$value" && ! -d "/usr/share/zoneinfo/$value" ]]
-}
-
-port_in_use_details() {
-  local port="$1"
-  if command -v ss >/dev/null 2>&1; then
-    ss -H -ltnp "sport = :$port" 2>/dev/null || true
-    return 0
-  fi
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
-    return 0
-  fi
-  return 0
-}
-
-try_stop_user_gateway_service() {
-  local port="$1"
-  if ! command -v systemctl >/dev/null 2>&1; then
-    return 0
-  fi
-  if ! systemctl --user --quiet is-enabled openclaw-gateway.service 2>/dev/null; then
-    return 0
-  fi
-  if ! systemctl --user --quiet is-active openclaw-gateway.service 2>/dev/null; then
-    return 0
-  fi
-
-  local details
-  details="$(port_in_use_details "$port")"
-  if [[ "$details" != *openclaw-gatewa* && "$details" != *openclaw-gateway* ]]; then
-    return 0
-  fi
-
-  echo "==> Stopping existing user gateway service on port $port"
-  systemctl --user stop openclaw-gateway.service
-  sleep 2
-  if [[ -z "$(port_in_use_details "$port")" ]]; then
-    echo "==> Port $port released successfully"
-  else
-    echo "==> Port $port is still busy after stopping openclaw-gateway.service"
-  fi
-}
-
-# Kill bare (non-systemd) openclaw-gateway or node gateway processes on a port.
-# This handles the common case where a user started the gateway manually via
-# `node dist/index.js gateway run` or the compiled `openclaw-gateway` binary
-# and forgot to stop it before running Docker setup.
-try_kill_bare_gateway_process() {
-  local port="$1"
-  local details
-  details="$(port_in_use_details "$port")"
-  if [[ -z "${details//$'\n'/}" ]]; then
-    return 0
-  fi
-
-  # Only kill processes that look like openclaw-gateway or node running gateway.
-  if [[ "$details" != *openclaw* && "$details" != *"dist/index.js"* ]]; then
-    return 0
-  fi
-
-  local pids=""
-  if command -v ss >/dev/null 2>&1; then
-    pids="$(ss -H -ltnp "sport = :$port" 2>/dev/null \
-      | grep -oP 'pid=\K[0-9]+' | sort -u || true)"
-  elif command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | sort -u || true)"
-  fi
-
-  if [[ -z "$pids" ]]; then
-    return 0
-  fi
-
-  local pid
-  for pid in $pids; do
-    # Safety: only kill if the process command line matches openclaw/gateway.
-    local cmdline=""
-    if [[ -r "/proc/$pid/cmdline" ]]; then
-      cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
-    elif command -v ps >/dev/null 2>&1; then
-      cmdline="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-    fi
-    if [[ "$cmdline" != *openclaw* && "$cmdline" != *"dist/index.js"* ]]; then
-      continue
-    fi
-    echo "==> Killing stale gateway process (PID $pid) on port $port"
-    kill "$pid" 2>/dev/null || true
-  done
-
-  sleep 2
-  if [[ -z "$(port_in_use_details "$port")" ]]; then
-    echo "==> Port $port released successfully"
-  else
-    # Force-kill as last resort if graceful shutdown didn't work.
-    for pid in $pids; do
-      if kill -0 "$pid" 2>/dev/null; then
-        echo "==> Force-killing stale gateway process (PID $pid)"
-        kill -9 "$pid" 2>/dev/null || true
-      fi
-    done
-    sleep 1
-  fi
-}
-
-ensure_host_port_available() {
-  local port="$1"
-  local label="$2"
-  local env_var="$3"
-  local details
-
-  # 1. Try stopping a systemd-managed user gateway service.
-  try_stop_user_gateway_service "$port"
-  details="$(port_in_use_details "$port")"
-  if [[ -z "${details//$'\n'/}" ]]; then
-    return 0
-  fi
-
-  # 2. Try killing bare (non-systemd) gateway processes on the port.
-  try_kill_bare_gateway_process "$port"
-  details="$(port_in_use_details "$port")"
-  if [[ -z "${details//$'\n'/}" ]]; then
-    return 0
-  fi
-
-  # 3. Also stop any existing Docker container occupying the port.
-  if docker compose "${COMPOSE_ARGS[@]}" ps -q openclaw-gateway 2>/dev/null | grep -q .; then
-    echo "==> Stopping existing Docker gateway container on port $port"
-    docker compose "${COMPOSE_ARGS[@]}" down openclaw-gateway 2>/dev/null || true
-    sleep 2
-    details="$(port_in_use_details "$port")"
-    if [[ -z "${details//$'\n'/}" ]]; then
-      return 0
-    fi
-  fi
-
-  cat >&2 <<EOF
-ERROR: Host port $port for $label is already in use.
-
-$details
-
-Choose one of these fixes:
-  1. Stop the process already using the port.
-     Example: systemctl --user stop openclaw-gateway.service
-  2. Re-run Docker setup on a different port.
-     Example: $env_var=$((port + 1000)) ./docker-setup.sh
-EOF
-  exit 1
 }
 
 validate_mount_path_value() {
@@ -625,21 +278,12 @@ export OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 export OPENCLAW_IMAGE="$IMAGE_NAME"
 export OPENCLAW_DOCKER_APT_PACKAGES="${OPENCLAW_DOCKER_APT_PACKAGES:-}"
 export OPENCLAW_EXTENSIONS="${OPENCLAW_EXTENSIONS:-}"
-export OPENCLAW_INSTALL_SUDO="${OPENCLAW_INSTALL_SUDO:-1}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
 export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS="${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}"
 export OPENCLAW_SANDBOX="$SANDBOX_ENABLED"
 export OPENCLAW_DOCKER_SOCKET="$DOCKER_SOCKET_PATH"
 export OPENCLAW_TZ="$TIMEZONE"
-if [[ -n "$OPENCLAW_INSTALL_SUDO" && "$OPENCLAW_INSTALL_SUDO" != "0" ]]; then
-  export OPENCLAW_NO_NEW_PRIVILEGES="${OPENCLAW_NO_NEW_PRIVILEGES:-false}"
-else
-  export OPENCLAW_NO_NEW_PRIVILEGES="${OPENCLAW_NO_NEW_PRIVILEGES:-true}"
-fi
-
-ensure_host_port_available "$OPENCLAW_GATEWAY_PORT" "OpenClaw gateway" "OPENCLAW_GATEWAY_PORT"
-ensure_host_port_available "$OPENCLAW_BRIDGE_PORT" "OpenClaw bridge" "OPENCLAW_BRIDGE_PORT"
 
 # Detect Docker socket GID for sandbox group_add.
 DOCKER_GID=""
@@ -808,29 +452,24 @@ upsert_env() {
   mv "$tmp" "$file"
 }
 
-ENV_KEYS=(
-  OPENCLAW_CONFIG_DIR
-  OPENCLAW_WORKSPACE_DIR
-  OPENCLAW_GATEWAY_PORT
-  OPENCLAW_BRIDGE_PORT
-  OPENCLAW_GATEWAY_BIND
-  OPENCLAW_GATEWAY_TOKEN
-  OPENCLAW_IMAGE
-  OPENCLAW_EXTRA_MOUNTS
-  OPENCLAW_HOME_VOLUME
-  OPENCLAW_DOCKER_APT_PACKAGES
-  OPENCLAW_EXTENSIONS
-  OPENCLAW_INSTALL_SUDO
-  OPENCLAW_NO_NEW_PRIVILEGES
-  OPENCLAW_SANDBOX
-  OPENCLAW_DOCKER_SOCKET
-  DOCKER_GID
-  OPENCLAW_INSTALL_DOCKER_CLI
-  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS
+upsert_env "$ENV_FILE" \
+  OPENCLAW_CONFIG_DIR \
+  OPENCLAW_WORKSPACE_DIR \
+  OPENCLAW_GATEWAY_PORT \
+  OPENCLAW_BRIDGE_PORT \
+  OPENCLAW_GATEWAY_BIND \
+  OPENCLAW_GATEWAY_TOKEN \
+  OPENCLAW_IMAGE \
+  OPENCLAW_EXTRA_MOUNTS \
+  OPENCLAW_HOME_VOLUME \
+  OPENCLAW_DOCKER_APT_PACKAGES \
+  OPENCLAW_EXTENSIONS \
+  OPENCLAW_SANDBOX \
+  OPENCLAW_DOCKER_SOCKET \
+  DOCKER_GID \
+  OPENCLAW_INSTALL_DOCKER_CLI \
+  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS \
   OPENCLAW_TZ
-)
-
-upsert_env "$ENV_FILE" "${ENV_KEYS[@]}"
 
 if [[ "$IMAGE_NAME" == "openclaw:local" ]]; then
   echo "==> Building Docker image: $IMAGE_NAME"
@@ -838,7 +477,6 @@ if [[ "$IMAGE_NAME" == "openclaw:local" ]]; then
     --build-arg "OPENCLAW_DOCKER_APT_PACKAGES=${OPENCLAW_DOCKER_APT_PACKAGES}" \
     --build-arg "OPENCLAW_EXTENSIONS=${OPENCLAW_EXTENSIONS}" \
     --build-arg "OPENCLAW_INSTALL_DOCKER_CLI=${OPENCLAW_INSTALL_DOCKER_CLI:-}" \
-    --build-arg "OPENCLAW_INSTALL_SUDO=${OPENCLAW_INSTALL_SUDO}" \
     -t "$IMAGE_NAME" \
     -f "$ROOT_DIR/Dockerfile" \
     "$ROOT_DIR"
@@ -866,16 +504,12 @@ run_prestart_gateway --user root --entrypoint sh openclaw-gateway -c \
   'find /home/node/.openclaw -xdev -exec chown node:node {} +; \
    [ -d /home/node/.openclaw/workspace/.openclaw ] && chown -R node:node /home/node/.openclaw/workspace/.openclaw || true'
 
-normalize_config_paths_for_container
-normalize_session_state_paths_for_container
-
 echo ""
 echo "==> Onboarding (interactive)"
 echo "Docker setup pins Gateway mode to local."
 echo "Gateway runtime bind comes from OPENCLAW_GATEWAY_BIND (default: lan)."
 echo "Current runtime bind: $OPENCLAW_GATEWAY_BIND"
 echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
-echo "Agent sudo inside container: $( [[ -n "$OPENCLAW_INSTALL_SUDO" && "$OPENCLAW_INSTALL_SUDO" != "0" ]] && printf 'enabled' || printf 'disabled' )"
 echo "Tailscale exposure: Off (use host-level tailnet/Tailscale setup separately)."
 echo "Install Gateway daemon: No (managed by Docker Compose)"
 echo ""
@@ -883,11 +517,7 @@ run_prestart_cli onboard --mode local --no-install-daemon
 
 echo ""
 echo "==> Docker gateway defaults"
-sync_gateway_mode_and_bind
-
-echo ""
-echo "==> Control UI origin allowlist"
-ensure_control_ui_allowed_origins
+sync_gateway_config
 
 echo ""
 echo "==> Provider setup (optional)"
@@ -901,7 +531,7 @@ echo "Docs: https://docs.openclaw.ai/channels"
 
 echo ""
 echo "==> Starting gateway"
-start_gateway_service current
+docker compose "${COMPOSE_ARGS[@]}" up -d openclaw-gateway
 
 # --- Sandbox setup (opt-in via OPENCLAW_SANDBOX=1) ---
 if [[ -n "$SANDBOX_ENABLED" ]]; then
@@ -983,7 +613,7 @@ if [[ -n "$SANDBOX_ENABLED" ]]; then
     echo "Sandbox enabled: mode=non-main, scope=agent, workspaceAccess=none"
     echo "Docs: https://docs.openclaw.ai/gateway/sandboxing"
     # Restart gateway with sandbox compose overlay to pick up socket mount + config.
-    start_gateway_service current
+    docker compose "${COMPOSE_ARGS[@]}" up -d openclaw-gateway
   else
     echo "WARNING: Sandbox config was partially applied. Check errors above." >&2
     echo "  Skipping gateway restart to avoid exposing Docker socket without a full sandbox policy." >&2
@@ -997,7 +627,7 @@ if [[ -n "$SANDBOX_ENABLED" ]]; then
       rm -f "$SANDBOX_COMPOSE_FILE"
     fi
     # Ensure gateway service definition is reset without sandbox overlay mount.
-    start_gateway_service base force-recreate
+    docker compose "${BASE_COMPOSE_ARGS[@]}" up -d --force-recreate openclaw-gateway
   fi
 else
   # Keep reruns deterministic: if sandbox is not active for this run, reset

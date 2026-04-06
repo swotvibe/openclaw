@@ -8,6 +8,7 @@ import {
 } from "../agents/usage.js";
 import { jsonUtf8Bytes } from "../infra/json-utf8-bytes.js";
 import { hasInterSessionUserProvenance } from "../sessions/input-provenance.js";
+import { extractAssistantVisibleText } from "../shared/chat-message-content.js";
 import { stripInlineDirectiveTagsForDisplay } from "../utils/directive-tags.js";
 import { extractToolCallNames, hasToolCall } from "../utils/transcript-tools.js";
 import { stripEnvelope } from "./chat-sanitize.js";
@@ -657,6 +658,15 @@ function truncatePreviewText(text: string, maxChars: number): string {
 }
 
 function extractPreviewText(message: TranscriptPreviewMessage): string | null {
+  const role = typeof message.role === "string" ? message.role.trim().toLowerCase() : "";
+  if (role === "assistant") {
+    const assistantText = extractAssistantVisibleText(message);
+    if (assistantText) {
+      const normalized = stripInlineDirectiveTagsForDisplay(assistantText).text.trim();
+      return normalized ? normalized : null;
+    }
+    return null;
+  }
   if (typeof message.content === "string") {
     const normalized = stripInlineDirectiveTagsForDisplay(message.content).text.trim();
     return normalized ? normalized : null;

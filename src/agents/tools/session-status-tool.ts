@@ -22,7 +22,8 @@ import {
   resolveAgentIdFromSessionKey,
 } from "../../routing/session-key.js";
 import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides.js";
-import { listTasksForRelatedSessionKeyForOwner } from "../../tasks/task-owner-access.js";
+import { buildTaskStatusSnapshotForRelatedSessionKeyForOwner } from "../../tasks/task-owner-access.js";
+import { formatTaskStatusDetail, formatTaskStatusTitle } from "../../tasks/task-status.js";
 import { loadModelCatalog } from "../model-catalog.js";
 import {
   buildAllowedModelSet,
@@ -31,6 +32,10 @@ import {
   resolveDefaultModelForAgent,
   resolveModelRefFromString,
 } from "../model-selection.js";
+import {
+  describeSessionStatusTool,
+  SESSION_STATUS_TOOL_DISPLAY_SUMMARY,
+} from "../tool-description-presets.js";
 import type { AnyAgentTool } from "./common.js";
 import { readStringParam } from "./common.js";
 import {
@@ -119,32 +124,23 @@ function formatSessionTaskLine(params: {
   relatedSessionKey: string;
   callerOwnerKey: string;
 }): string | undefined {
-  const tasks = listTasksForRelatedSessionKeyForOwner({
+  const snapshot = buildTaskStatusSnapshotForRelatedSessionKeyForOwner({
     relatedSessionKey: params.relatedSessionKey,
     callerOwnerKey: params.callerOwnerKey,
   });
-  if (tasks.length === 0) {
+  const task = snapshot.focus;
+  if (!task) {
     return undefined;
   }
-  const latest = tasks[0];
-  const active = tasks.filter(
-    (task) => task.status === "queued" || task.status === "running",
-  ).length;
-  const failed = tasks.filter(
-    (task) => task.status === "failed" || task.status === "timed_out" || task.status === "lost",
-  ).length;
   const headline =
-    active > 0
-      ? `${active} active`
-      : failed > 0
-        ? `${failed} recent failure${failed === 1 ? "" : "s"}`
-        : `latest ${latest.status.replaceAll("_", " ")}`;
-  const title = latest.label?.trim() || latest.task.trim();
-  const detail =
-    latest.status === "running" || latest.status === "queued"
-      ? latest.progressSummary?.trim()
-      : latest.error?.trim() || latest.terminalSummary?.trim();
-  const parts = [headline, latest.runtime, title, detail].filter(Boolean);
+    snapshot.activeCount > 0
+      ? `${snapshot.activeCount} active`
+      : snapshot.recentFailureCount > 0
+        ? `${snapshot.recentFailureCount} recent failure${snapshot.recentFailureCount === 1 ? "" : "s"}`
+        : `latest ${task.status.replaceAll("_", " ")}`;
+  const title = formatTaskStatusTitle(task);
+  const detail = formatTaskStatusDetail(task);
+  const parts = [headline, task.runtime, title, detail].filter(Boolean);
   return parts.length ? `📌 Tasks: ${parts.join(" · ")}` : undefined;
 }
 
@@ -220,8 +216,8 @@ export function createSessionStatusTool(opts?: {
   return {
     label: "Session Status",
     name: "session_status",
-    description:
-      "Show a /status-equivalent session status card (usage + time + cost when available), including linked background task context when present. Use for model-use questions (📊 session_status). Optional: set per-session model override (model=default resets overrides).",
+    displaySummary: SESSION_STATUS_TOOL_DISPLAY_SUMMARY,
+    description: describeSessionStatusTool(),
     parameters: SessionStatusToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -434,6 +430,7 @@ export function createSessionStatusTool(opts?: {
                   model: selection.model,
                   isDefault: selection.isDefault,
                 },
+          markLiveSwitchPending: true,
         });
         if (applied.updated) {
           store[resolved.key] = nextEntry;
@@ -507,6 +504,7 @@ export function createSessionStatusTool(opts?: {
         skipDefaultTaskLookup: true,
         primaryModelLabelOverride: primaryModelLabel,
         ...(providerForCard ? {} : { modelAuthOverride: undefined }),
+        includeTranscriptUsage: true,
       });
       const fullStatusText =
         taskLine && !statusText.includes(taskLine) ? `${statusText}\n${taskLine}` : statusText;
