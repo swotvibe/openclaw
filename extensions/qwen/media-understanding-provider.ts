@@ -45,6 +45,22 @@ function resolveQwenStandardBaseUrl(
   }
 }
 
+/** Extract the base audio format from a MIME type, stripping parameters and normalizing. */
+export function extractAudioFormat(mime: string | undefined): string {
+  const cleaned = mime?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const slashIdx = cleaned.lastIndexOf("/");
+  const format = slashIdx >= 0 ? cleaned.slice(slashIdx + 1) : cleaned;
+  // Qwen API supports: wav, mp3, m4a, ogg, flac
+  // Map ogg variants (e.g. ogg from audio/ogg; codecs=opus) to "ogg"
+  if (format === "ogg" || format === "oga") {
+    return "ogg";
+  }
+  if (format === "opus") {
+    return "opus";
+  }
+  return format || "wav";
+}
+
 export async function describeQwenVideo(
   params: VideoDescriptionRequest,
 ): Promise<VideoDescriptionResult> {
@@ -122,6 +138,7 @@ export async function transcribeQwenAudio(
     transport: "media-understanding",
   });
 
+  const format = extractAudioFormat(mime);
   const audioDataUri = `data:${mime};base64,${params.buffer.toString("base64")}`;
 
   const response = await fetchFn(`${baseUrl}/chat/completions`, {
@@ -136,7 +153,7 @@ export async function transcribeQwenAudio(
             { type: "text", text: prompt },
             {
               type: "input_audio",
-              input_audio: { data: audioDataUri, format: mime.split("/")[1] || "wav" },
+              input_audio: { data: audioDataUri, format },
             },
           ],
         },

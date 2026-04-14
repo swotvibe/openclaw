@@ -115,6 +115,15 @@ export const QWEN_MODEL_CATALOG: ReadonlyArray<ModelDefinitionConfig> = [
     contextWindow: 131_072,
     maxTokens: 8_192,
   },
+  {
+    id: "qwen3.5-omni-flash-realtime",
+    name: "qwen3.5-omni-flash-realtime",
+    reasoning: false,
+    input: ["text", "image", "audio"],
+    cost: QWEN_DEFAULT_COST,
+    contextWindow: 131_072,
+    maxTokens: 8_192,
+  },
 ];
 
 export function isQwenCodingPlanBaseUrl(baseUrl: string | undefined): boolean {

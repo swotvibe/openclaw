@@ -10,6 +10,7 @@ import {
   QWEN_DEFAULT_MODEL_REF,
 } from "./onboard.js";
 import { buildQwenProvider } from "./provider-catalog.js";
+import { buildQwenRealtimeVoiceProvider } from "./realtime-voice-provider.js";
 import { buildQwenSpeechProvider } from "./speech-provider.js";
 import { buildQwenVideoGenerationProvider } from "./video-generation-provider.js";
 
@@ -193,6 +194,7 @@ export default defineSingleProviderPluginEntry({
   },
   register(api) {
     api.registerMediaUnderstandingProvider(buildQwenMediaUnderstandingProvider());
+    api.registerRealtimeVoiceProvider(buildQwenRealtimeVoiceProvider());
     api.registerSpeechProvider(buildQwenSpeechProvider());
     api.registerVideoGenerationProvider(buildQwenVideoGenerationProvider());
   },
