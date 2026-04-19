@@ -217,13 +217,19 @@ function resolvePathWithinSessionsDir(
         return resolvedFromPath;
       }
       // Cross-root compatibility for older absolute paths:
-      // keep only canonical .../agents/<agentId>/sessions/<file> shapes.
+      // keep only canonical .../agents/<agentId>/sessions/<file> shapes,
+      // rebasing to the current state root when the stored path points to
+      // a stale root (e.g. Docker HOME=/home/node → systemd HOME=/home/ubuntu).
       const structuralFallback = resolveStructuralSessionFallbackPath(
         realTrimmed,
         extractedAgentId,
       );
       if (structuralFallback) {
-        return structuralFallback;
+        const fileName = path.basename(structuralFallback);
+        const rebasedSessionsDir =
+          resolveSiblingAgentSessionsDir(realBase, extractedAgentId) ??
+          resolveAgentSessionsDir(extractedAgentId);
+        return path.resolve(rebasedSessionsDir, fileName);
       }
     }
   }

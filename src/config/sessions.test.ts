@@ -584,17 +584,46 @@ describe("sessions", () => {
     );
   });
 
-  it("resolves cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
+  it("rebases cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
     withStateDir(path.resolve("/different/state"), () => {
       const originalBase = path.resolve("/original/state");
       const bot2Session = path.join(originalBase, "agents", "bot2", "sessions", "sess-1.jsonl");
-      // sessionFile was created under a different state dir than current env
+      // sessionFile was created under a different state dir than current env;
+      // the path should be rebased to the current state root to avoid EACCES
+      // from stale absolute paths (e.g. Docker HOME=/home/node → host HOME=/home/ubuntu).
       const sessionFile = resolveSessionFilePath(
         "sess-1",
         { sessionFile: bot2Session },
         { agentId: "bot1" },
       );
-      expect(sessionFile).toBe(bot2Session);
+      const expectedRebased = path.join(
+        path.resolve("/different/state"),
+        "agents",
+        "bot2",
+        "sessions",
+        "sess-1.jsonl",
+      );
+      expect(sessionFile).toBe(expectedRebased);
+    });
+  });
+
+  it("rebases stale /home/node Docker paths to current state root", () => {
+    withStateDir(path.resolve("/home/ubuntu/.openclaw"), () => {
+      const staleDockerPath = "/home/node/.openclaw/agents/main/sessions/sess-docker.jsonl";
+      const sessionFile = resolveSessionFilePath(
+        "sess-docker",
+        { sessionFile: staleDockerPath },
+        { agentId: "main" },
+      );
+      expect(sessionFile).toBe(
+        path.join(
+          path.resolve("/home/ubuntu/.openclaw"),
+          "agents",
+          "main",
+          "sessions",
+          "sess-docker.jsonl",
+        ),
+      );
     });
   });
 

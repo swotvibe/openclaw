@@ -504,6 +504,69 @@ run_prestart_gateway --user root --entrypoint sh openclaw-gateway -c \
   'find /home/node/.openclaw -xdev -exec chown node:node {} +; \
    [ -d /home/node/.openclaw/workspace/.openclaw ] && chown -R node:node /home/node/.openclaw/workspace/.openclaw || true'
 
+# --- Normalize stale absolute paths in config and session state ---
+# When the data directory was previously used outside Docker (or with a
+# different container HOME), stored absolute paths like /home/ubuntu/.openclaw/...
+# cause EACCES inside the container where HOME=/home/node.
+# Rewrite them to the container's perspective before onboarding.
+echo ""
+echo "==> Normalizing stale absolute paths"
+normalize_json_paths() {
+  local file="$1"
+  local old_prefix="$2"
+  local new_prefix="$3"
+  if [[ ! -f "$file" ]]; then return 0; fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$old_prefix" "$new_prefix" <<'PY'
+import json, sys
+path, old_p, new_p = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    if old_p not in content:
+        raise SystemExit(0)
+    updated = content.replace(old_p, new_p)
+    json.loads(updated)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(updated)
+except Exception:
+    pass
+PY
+  elif command -v node >/dev/null 2>&1; then
+    node - "$file" "$old_prefix" "$new_prefix" <<'NODE'
+const fs = require("node:fs");
+const filePath = process.argv[2];
+const oldPrefix = process.argv[3];
+const newPrefix = process.argv[4];
+try {
+  const content = fs.readFileSync(filePath, "utf8");
+  if (!content.includes(oldPrefix)) return;
+  const updated = content.replaceAll(oldPrefix, newPrefix);
+  JSON.parse(updated);
+  fs.writeFileSync(filePath, updated, "utf8");
+} catch {
+  // Keep docker-setup resilient when path normalization fails.
+}
+NODE
+  else
+    echo "WARNING: Cannot normalize paths in $file (need python3 or node)" >&2
+  fi
+}
+
+CONTAINER_HOME="/home/node"
+# Replace host HOME prefix in config and session files so the container
+# can find them.  Only rewrite when the prefix actually differs.
+if [[ "$HOME/.openclaw" != "$CONTAINER_HOME/.openclaw" ]]; then
+  normalize_json_paths "$OPENCLAW_CONFIG_DIR/openclaw.json" \
+    "$HOME/.openclaw" "$CONTAINER_HOME/.openclaw"
+  if [[ -d "$OPENCLAW_CONFIG_DIR/agents" ]]; then
+    find "$OPENCLAW_CONFIG_DIR/agents" -name "sessions.json" -print0 2>/dev/null \
+      | while IFS= read -r -d '' sf; do
+          normalize_json_paths "$sf" "$HOME/.openclaw" "$CONTAINER_HOME/.openclaw"
+        done
+  fi
+fi
+
 echo ""
 echo "==> Onboarding (interactive)"
 echo "Docker setup pins Gateway mode to local."
