@@ -63,6 +63,32 @@ describe("NotionApiClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("posts advanced search query, pagination, filter, and sort in the request body", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(requestUrl(input)).toBe("https://api.notion.com/v1/search");
+      expect(parseJsonBody(init)).toEqual({
+        query: "project alpha",
+        filter: { property: "object", value: "page" },
+        sort: { direction: "descending", timestamp: "last_edited_time" },
+        page_size: 20,
+        start_cursor: "cursor-9",
+      });
+      return jsonResponse({ results: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createClient();
+    await client.advancedSearch(
+      "project alpha",
+      { property: "object", value: "page" },
+      { direction: "descending", timestamp: "last_edited_time" },
+      20,
+      "cursor-9",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("maps create-page parents to Notion request shapes", async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       expect(parseJsonBody(init)).toEqual({

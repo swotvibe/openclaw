@@ -26,6 +26,24 @@ function captureRegisteredTools(): Map<string, RegisteredTool> {
   return tools;
 }
 
+function captureBeforeToolCallHandler() {
+  let beforeToolCall:
+    | ((event: { toolName: string; params: Record<string, unknown> }) => unknown)
+    | undefined;
+
+  notionPlugin.register({
+    pluginConfig: { safety: { writeApprovalMode: "per_call" } },
+    on(eventName: string, handler: (event: { toolName: string; params: Record<string, unknown> }) => unknown) {
+      if (eventName === "before_tool_call") {
+        beforeToolCall = handler;
+      }
+    },
+    registerTool() {},
+  } as never);
+
+  return beforeToolCall;
+}
+
 describe("notion tools", () => {
   const originalToken = process.env.NOTION_TOKEN;
 
@@ -102,5 +120,23 @@ describe("notion tools", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires approval for notion comment write tools", () => {
+    const beforeToolCall = captureBeforeToolCallHandler();
+    expect(beforeToolCall).toBeDefined();
+
+    const createCommentApproval = beforeToolCall?.({
+      toolName: "notion_create_comment",
+      params: { blockId: "page-123", richText: [] },
+    }) as { requireApproval?: { pluginId?: string } } | undefined;
+
+    const updateCommentApproval = beforeToolCall?.({
+      toolName: "notion_update_comment",
+      params: { commentId: "comment-123", richText: [] },
+    }) as { requireApproval?: { pluginId?: string } } | undefined;
+
+    expect(createCommentApproval?.requireApproval?.pluginId).toBe("notion");
+    expect(updateCommentApproval?.requireApproval?.pluginId).toBe("notion");
   });
 });
