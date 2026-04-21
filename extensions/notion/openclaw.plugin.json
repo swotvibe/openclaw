@@ -1,0 +1,54 @@
+{
+  "id": "notion",
+  "name": "Notion",
+  "description": "Native Notion REST tools for search, page reads, block operations, database operations, user operations, comments, and guarded writes.",
+  "contracts": {
+    "tools": [
+      "notion_search",
+      "notion_fetch",
+      "notion_query_data_source",
+      "notion_create_page",
+      "notion_update_page",
+      "notion_create_data_source",
+      "notion_update_data_source",
+      "notion_get_block",
+      "notion_get_block_children",
+      "notion_append_block_children",
+      "notion_update_block",
+      "notion_delete_block",
+      "notion_get_database",
+      "notion_delete_page",
+      "notion_get_user",
+      "notion_list_users",
+      "notion_get_comments",
+      "notion_create_comment",
+      "notion_update_comment",
+      "notion_advanced_search"
+    ]
+  },
+  "uiHints": {
+    "safety.writeApprovalMode": {
+      "label": "Write Approval Mode",
+      "help": "Require explicit approval for each Notion write tool call, or disable write approvals entirely."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "safety": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "writeApprovalMode": {
+            "type": "string",
+            "enum": [
+              "per_call",
+              "disabled"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

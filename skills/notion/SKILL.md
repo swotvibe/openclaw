@@ -139,6 +139,82 @@ curl -X PATCH "https://api.notion.com/v1/blocks/{page_id}/children" \
   }'
 ```
 
+## User Operations
+
+**Get user information:**
+
+```bash
+curl "https://api.notion.com/v1/users/{user_id}" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03"
+```
+
+**List all users in workspace:**
+
+```bash
+curl "https://api.notion.com/v1/users" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03"
+```
+
+## Comment Operations
+
+**Get comments for a block or page:**
+
+```bash
+curl "https://api.notion.com/v1/comments?block_id={block_id}" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03"
+```
+
+**Create a comment:**
+
+```bash
+curl -X POST "https://api.notion.com/v1/comments" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent": {"page_id": "xxx"},
+    "rich_text": [{"type": "text", "text": {"content": "My comment"}}]
+  }'
+```
+
+**Update a comment:**
+
+```bash
+curl -X PATCH "https://api.notion.com/v1/comments/{comment_id}" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rich_text": [{"type": "text", "text": {"content": "Updated comment"}}]
+  }'
+```
+
+## Advanced Search
+
+**Advanced search with filters and sorting:**
+
+```bash
+curl -X POST "https://api.notion.com/v1/search" \
+  -H "Authorization: Bearer $NOTION_KEY" \
+  -H "Notion-Version: 2025-09-03" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "search term",
+    "filter": {
+      "property": "object",
+      "value": "page"
+    },
+    "sort": {
+      "direction": "descending",
+      "timestamp": "last_edited_time"
+    },
+    "page_size": 50
+  }'
+```
+
 ## Property Types
 
 Common property formats for database items:
