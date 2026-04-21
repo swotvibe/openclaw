@@ -1,5 +1,7 @@
 // Notion API Client
-// Implements HTTP requests to Notion API endpoints
+// Implements HTTP requests to Notion API endpoints using official SDK
+
+import { Client, isNotionClientError, APIResponseError } from "@notionhq/client";
 
 const NOTION_API_VERSION = "2026-03-11";
 
@@ -109,11 +111,40 @@ function buildDataSourcePropertiesPatch(
   return Object.keys(properties).length > 0 ? properties : undefined;
 }
 
+function mapNotionError(error: unknown): NotionApiError {
+  if (isNotionClientError(error)) {
+    const apiError = error as APIResponseError;
+    return {
+      ok: false as const,
+      error: `Notion API error: ${apiError.message} (code: ${apiError.code}, status: ${apiError.status})`,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      ok: false as const,
+      error: error.message,
+    };
+  }
+
+  return {
+    ok: false as const,
+    error: String(error),
+  };
+}
+
 export class NotionApiClient {
   private config: NotionApiClientConfig;
+  private notionClient: Client;
 
   constructor(config: NotionApiClientConfig) {
     this.config = config;
+    // Initialize official SDK with all relevant runtime config
+    // SDK handles retries for 429 rate limits and server errors by default
+    this.notionClient = new Client({
+      auth: config.token,
+      notionVersion: NOTION_API_VERSION, // Explicitly set to 2026-03-11 (SDK default is 2025-09-03)
+    });
   }
 
   private async request<T>(
@@ -149,79 +180,111 @@ export class NotionApiClient {
         data,
       };
     } catch (error) {
-      return {
-        ok: false as const,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return mapNotionError(error);
     }
   }
 
   async getBlock(blockId: string) {
-    return this.request(`/blocks/${blockId}`);
+    try {
+      const block = await this.notionClient.blocks.retrieve({ block_id: blockId });
+      return { ok: true as const, data: block };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async getBlockChildren(blockId: string, pageSize?: number, startCursor?: string) {
-    const params = new URLSearchParams();
-    if (pageSize) {
-      params.append("page_size", String(pageSize));
+    try {
+      const children = await this.notionClient.blocks.children.list({
+        block_id: blockId,
+        page_size: pageSize,
+        start_cursor: startCursor,
+      });
+      return { ok: true as const, data: children };
+    } catch (error) {
+      return mapNotionError(error);
     }
-    if (startCursor) {
-      params.append("start_cursor", startCursor);
-    }
-
-    return this.request(`/blocks/${blockId}/children?${params.toString()}`);
   }
 
   async appendBlockChildren(blockId: string, children: unknown[]) {
-    return this.request(`/blocks/${blockId}/children`, {
-      method: "PATCH",
-      body: JSON.stringify({ children }),
-    });
+    try {
+      const result = await this.notionClient.blocks.children.append({
+        block_id: blockId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        children: children as any,
+      });
+      return { ok: true as const, data: result };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async updateBlock(blockId: string, block: unknown) {
-    return this.request(`/blocks/${blockId}`, {
-      method: "PATCH",
-      body: JSON.stringify(block),
-    });
+    try {
+      const updated = await this.notionClient.blocks.update({
+        block_id: blockId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(block as any),
+      });
+      return { ok: true as const, data: updated };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async deleteBlock(blockId: string) {
-    return this.request(`/blocks/${blockId}`, {
-      method: "DELETE",
-    });
+    try {
+      const deleted = await this.notionClient.blocks.delete({ block_id: blockId });
+      return { ok: true as const, data: deleted };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async getDatabase(databaseId: string) {
-    return this.request(`/databases/${databaseId}`);
+    try {
+      const database = await this.notionClient.databases.retrieve({ database_id: databaseId });
+      return { ok: true as const, data: database };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async getDataSource(dataSourceId: string) {
+    // SDK doesn't have dataSources methods yet, fall back to manual request
     return this.request(`/data_sources/${dataSourceId}`);
   }
 
   async deletePage(pageId: string) {
-    return this.request(`/pages/${pageId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ in_trash: true }),
-    });
+    try {
+      const deleted = await this.notionClient.pages.update({
+        page_id: pageId,
+        archived: true,
+      });
+      return { ok: true as const, data: deleted };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async search(query?: string, kind?: NotionSearchKind, pageSize?: number, cursor?: string) {
-    const body: Record<string, unknown> = {};
-    if (typeof query === "string" && query.length > 0) {
-      body.query = query;
-    }
-    if (kind && kind !== "all") {
-      body.filter = { property: "object", value: kind };
-    }
-    if (pageSize) body.page_size = pageSize;
-    if (cursor) body.start_cursor = cursor;
+    try {
+      const filter =
+        kind && kind !== "all"
+          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ({ property: "object", value: kind } as any)
+          : undefined;
 
-    return this.request("/search", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+      const results = await this.notionClient.search({
+        query: query || "",
+        filter,
+        page_size: pageSize,
+        start_cursor: cursor,
+      });
+      return { ok: true as const, data: results };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async fetchPage(
@@ -269,25 +332,25 @@ export class NotionApiClient {
     blockPageSize?: number,
     blockCursor?: string,
   ) {
-    const page = await this.request(`/pages/${pageId}`);
-    if (!page.ok) {
-      return page;
-    }
+    try {
+      const page = await this.notionClient.pages.retrieve({ page_id: pageId });
+      if (!includeBlocks) {
+        return { ok: true as const, data: page };
+      }
 
-    if (includeBlocks) {
       const children = await this.getBlockChildren(pageId, blockPageSize, blockCursor);
       if (!children.ok) {
         return children;
       }
       return {
         ok: true as const,
-        data: Object.assign({}, page.data as Record<string, unknown>, {
+        data: Object.assign({}, page as Record<string, unknown>, {
           children: children.data,
         }),
       };
+    } catch (error) {
+      return mapNotionError(error);
     }
-
-    return page;
   }
 
   private async fetchDataSourceTarget(target: string, normalizedId: string) {
@@ -301,8 +364,10 @@ export class NotionApiClient {
       return direct;
     }
 
-    const dataSources = Array.isArray((database.data as Record<string, unknown>)?.data_sources)
-      ? ((database.data as Record<string, unknown>).data_sources as unknown[])
+    const dataSources = Array.isArray(
+      (database.data as unknown as Record<string, unknown>)?.data_sources,
+    )
+      ? ((database.data as unknown as Record<string, unknown>).data_sources as unknown[])
       : [];
     const ids = dataSources
       .map((entry) => (isRecord(entry) && typeof entry.id === "string" ? entry.id : undefined))
@@ -328,6 +393,7 @@ export class NotionApiClient {
     pageSize?: number,
     cursor?: string,
   ) {
+    // SDK doesn't have dataSources.query yet, fall back to manual request
     const body: Record<string, unknown> = {};
     if (filter) {
       body.filter = filter;
@@ -355,24 +421,22 @@ export class NotionApiClient {
     icon?: unknown,
     cover?: unknown,
   ) {
-    const body: Record<string, unknown> = {
-      parent: mapCreatePageParent(parent),
-      properties,
-    };
-    if (content) {
-      body.children = content;
+    try {
+      const page = await this.notionClient.pages.create({
+        parent: mapCreatePageParent(parent),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        properties: properties as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        children: content as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        icon: icon as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cover: cover as any,
+      });
+      return { ok: true as const, data: page };
+    } catch (error) {
+      return mapNotionError(error);
     }
-    if (icon) {
-      body.icon = icon;
-    }
-    if (cover) {
-      body.cover = cover;
-    }
-
-    return this.request("/pages", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
   }
 
   async updatePage(
@@ -385,35 +449,52 @@ export class NotionApiClient {
     archive?: boolean,
     restore?: boolean,
   ) {
-    const body: Record<string, unknown> = {};
-    if (properties) body.properties = properties;
-    if (icon) body.icon = icon;
-    if (cover) body.cover = cover;
-    if (eraseContent) body.erase_content = true;
-    if (archive) body.in_trash = true;
-    if (restore) body.in_trash = false;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {};
+      if (properties) {
+        updateData.properties = properties;
+      }
+      if (icon) {
+        updateData.icon = icon;
+      }
+      if (cover) {
+        updateData.cover = cover;
+      }
+      if (eraseContent) {
+        updateData.erase_content = true;
+      }
+      if (archive) {
+        updateData.archived = true;
+      }
+      if (restore) {
+        updateData.archived = false;
+      }
 
-    const pageResult = await this.request(`/pages/${pageId}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    });
+      const pageResult = await this.notionClient.pages.update({
+        page_id: pageId,
+        ...updateData,
+      });
 
-    if (!pageResult.ok || !appendContent) {
-      return pageResult;
+      if (!appendContent) {
+        return { ok: true as const, data: pageResult };
+      }
+
+      // Append blocks via separate endpoint
+      const appendResult = await this.appendBlockChildren(pageId, appendContent);
+      if (!appendResult.ok) {
+        return appendResult;
+      }
+
+      return {
+        ok: true as const,
+        data: Object.assign({}, pageResult as Record<string, unknown>, {
+          appended_children: appendResult.data,
+        }) as NotionPageWithOptionalChildren,
+      };
+    } catch (error) {
+      return mapNotionError(error);
     }
-
-    // Append blocks via separate endpoint
-    const appendResult = await this.appendBlockChildren(pageId, appendContent);
-    if (!appendResult.ok) {
-      return appendResult;
-    }
-
-    return {
-      ok: true as const,
-      data: Object.assign({}, pageResult.data as Record<string, unknown>, {
-        appended_children: appendResult.data,
-      }) as NotionPageWithOptionalChildren,
-    };
   }
 
   async createDataSource(
@@ -425,9 +506,10 @@ export class NotionApiClient {
     const body: Record<string, unknown> = {
       parent: { database_id: parentDatabaseId },
       title: [{ text: { content: title } }],
-      properties: isRecord(properties) && Object.keys(properties).length > 0
-        ? properties
-        : { Name: { title: {} } },
+      properties:
+        isRecord(properties) && Object.keys(properties).length > 0
+          ? properties
+          : { Name: { title: {} } },
     };
     if (icon) {
       body.icon = icon;
@@ -474,24 +556,35 @@ export class NotionApiClient {
 
   // Phase 3: User operations
   async getUser(userId: string) {
-    return this.request(`/users/${userId}`);
+    try {
+      const user = await this.notionClient.users.retrieve({ user_id: userId });
+      return { ok: true as const, data: user };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   async listUsers() {
-    return this.request("/users");
+    try {
+      const users = await this.notionClient.users.list();
+      return { ok: true as const, data: users };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   // Phase 4: Comment operations
   async getComments(blockId: string, pageSize?: number, startCursor?: string) {
-    const params = new URLSearchParams();
-    if (pageSize) {
-      params.append("page_size", String(pageSize));
+    try {
+      const comments = await this.notionClient.comments.list({
+        block_id: blockId,
+        page_size: pageSize,
+        start_cursor: startCursor,
+      });
+      return { ok: true as const, data: comments };
+    } catch (error) {
+      return mapNotionError(error);
     }
-    if (startCursor) {
-      params.append("start_cursor", startCursor);
-    }
-
-    return this.request(`/comments?block_id=${blockId}&${params.toString()}`);
   }
 
   async createComment(params: {
@@ -500,31 +593,44 @@ export class NotionApiClient {
     parentType?: NotionCommentParentType;
     discussionId?: string;
   }) {
-    const body: Record<string, unknown> = {
-      rich_text: params.richText,
-    };
-    if (params.discussionId) {
-      body.discussion_id = params.discussionId;
-    } else if (params.targetId && params.parentType) {
-      body.parent = { [params.parentType]: params.targetId };
-    } else {
-      return {
-        ok: false as const,
-        error: "Creating a comment requires either discussionId or both targetId and parentType.",
-      };
+    try {
+      if (params.discussionId) {
+        const comment = await this.notionClient.comments.create({
+          discussion_id: params.discussionId,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          rich_text: params.richText as any,
+        });
+        return { ok: true as const, data: comment };
+      } else if (params.targetId && params.parentType) {
+        const comment = await this.notionClient.comments.create({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          parent: { [params.parentType]: params.targetId } as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          rich_text: params.richText as any,
+        });
+        return { ok: true as const, data: comment };
+      } else {
+        return {
+          ok: false as const,
+          error: "Creating a comment requires either discussionId or both targetId and parentType.",
+        };
+      }
+    } catch (error) {
+      return mapNotionError(error);
     }
-
-    return this.request("/comments", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
   }
 
   async updateComment(commentId: string, richText: unknown[]) {
-    return this.request(`/comments/${commentId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ rich_text: richText }),
-    });
+    try {
+      const comment = await this.notionClient.comments.update({
+        comment_id: commentId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rich_text: richText as any,
+      });
+      return { ok: true as const, data: comment };
+    } catch (error) {
+      return mapNotionError(error);
+    }
   }
 
   // Phase 5: Advanced search
@@ -535,23 +641,19 @@ export class NotionApiClient {
     pageSize?: number,
     startCursor?: string,
   ) {
-    const body: Record<string, unknown> = { query };
-    if (filter) {
-      body.filter = filter;
+    try {
+      const results = await this.notionClient.search({
+        query,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        filter: filter as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sort: sort as any,
+        page_size: pageSize,
+        start_cursor: startCursor,
+      });
+      return { ok: true as const, data: results };
+    } catch (error) {
+      return mapNotionError(error);
     }
-    if (sort) {
-      body.sort = sort;
-    }
-    if (pageSize) {
-      body.page_size = pageSize;
-    }
-    if (startCursor) {
-      body.start_cursor = startCursor;
-    }
-
-    return this.request("/search", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
   }
 }
