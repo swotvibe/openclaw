@@ -143,16 +143,16 @@ curl -X PATCH "https://api.notion.com/v1/blocks/{page_id}/children" \
 
 ```bash
 curl "https://api.notion.com/v1/users/{user_id}" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03"
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11"
 ```
 
 **List all users in workspace:**
 
 ```bash
 curl "https://api.notion.com/v1/users" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03"
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11"
 ```
 
 ## Comment Operations
@@ -161,16 +161,16 @@ curl "https://api.notion.com/v1/users" \
 
 ```bash
 curl "https://api.notion.com/v1/comments?block_id={block_id}" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03"
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11"
 ```
 
 **Create a comment:**
 
 ```bash
 curl -X POST "https://api.notion.com/v1/comments" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03" \
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11" \
   -H "Content-Type: application/json" \
   -d '{
     "parent": {"page_id": "xxx"},
@@ -182,8 +182,8 @@ curl -X POST "https://api.notion.com/v1/comments" \
 
 ```bash
 curl -X PATCH "https://api.notion.com/v1/comments/{comment_id}" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03" \
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11" \
   -H "Content-Type: application/json" \
   -d '{
     "rich_text": [{"type": "text", "text": {"content": "Updated comment"}}]
@@ -196,8 +196,8 @@ curl -X PATCH "https://api.notion.com/v1/comments/{comment_id}" \
 
 ```bash
 curl -X POST "https://api.notion.com/v1/search" \
-  -H "Authorization: Bearer $NOTION_KEY" \
-  -H "Notion-Version: 2025-09-03" \
+  -H "Authorization: Bearer $NOTION_TOKEN" \
+  -H "Notion-Version: 2026-03-11" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "search term",
@@ -238,11 +238,20 @@ Common property formats for database items:
 - **Parent in responses:** Pages show `parent.data_source_id` alongside `parent.database_id`
 - **Finding the data_source_id:** Search for the database, or call `GET /v1/data_sources/{data_source_id}`
 
+## SDK Integration
+
+The OpenClaw Notion plugin uses the official `@notionhq/client` SDK (v5.12.0) internally. The SDK handles:
+
+- **Authentication:** Bearer token via `NOTION_TOKEN` env var
+- **API versioning:** `Notion-Version: 2026-03-11` header automatically applied
+- **Retry logic:** Built-in retries for `429 rate_limited` and server errors (5xx)
+- **Error handling:** SDK-native error types (`isNotionClientError`, `APIResponseError`) mapped to `NotionApiError`
+
 ## Notes
 
 - Page/database IDs are UUIDs (with or without dashes)
 - The API cannot set database view filters — that's UI-only
-- Rate limit: ~3 requests/second average, with `429 rate_limited` responses using `Retry-After`
+- Rate limit: ~3 requests/second average; the SDK auto-retries on `429` responses
 - Append block children: up to 100 children per request, up to two levels of nesting in a single append request
 - Payload size limits: up to 1000 block elements and 500KB overall
 - Use `is_inline: true` when creating data sources to embed them in pages
