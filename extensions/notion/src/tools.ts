@@ -12,6 +12,8 @@ const NOTION_WRITE_TOOL_NAMES = new Set([
   "notion_update_block",
   "notion_delete_block",
   "notion_delete_page",
+  "notion_create_comment",
+  "notion_update_comment",
 ]);
 
 function isNotionWriteToolName(name: string): boolean {

@@ -227,12 +227,12 @@ export class NotionApiClient {
     return this.request(`/comments?block_id=${blockId}&${params.toString()}`);
   }
 
-  async createComment(blockId: string, richText: unknown[], parentId?: string) {
+  async createComment(blockId: string, richText: unknown[], parentId?: string, parentType: 'page_id' | 'block_id' = 'block_id') {
     const body: Record<string, unknown> = {
-      parent: { type: blockId.startsWith('page') ? 'page_id' : 'block_id', [blockId.startsWith('page') ? 'page_id' : 'block_id']: blockId },
+      parent: { type: parentType, [parentType]: blockId },
       rich_text: richText,
     };
-    if (parentId) {body.parent_id = parentId;}
+    if (parentId) body.parent_id = parentId;
     
     return this.request('/comments', {
       method: 'POST',
