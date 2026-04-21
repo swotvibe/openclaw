@@ -24,6 +24,9 @@ type NotionSearchKind = "page" | "data_source" | "all";
 type NotionFetchTargetType = "auto" | "page" | "data_source";
 type NotionPageParentInput = { type: "page" | "data_source"; id: string };
 type NotionCommentParentType = "page_id" | "block_id";
+type NotionPageWithOptionalChildren = Record<string, unknown> & {
+  appended_children?: unknown;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -273,10 +276,13 @@ export class NotionApiClient {
 
     if (includeBlocks) {
       const children = await this.getBlockChildren(pageId, blockPageSize, blockCursor);
+      if (!children.ok) {
+        return children;
+      }
       return {
         ok: true as const,
         data: Object.assign({}, page.data as Record<string, unknown>, {
-          children: children.ok ? children.data : [],
+          children: children.data,
         }),
       };
     }
@@ -397,7 +403,17 @@ export class NotionApiClient {
     }
 
     // Append blocks via separate endpoint
-    return this.appendBlockChildren(pageId, appendContent);
+    const appendResult = await this.appendBlockChildren(pageId, appendContent);
+    if (!appendResult.ok) {
+      return appendResult;
+    }
+
+    return {
+      ok: true as const,
+      data: Object.assign({}, pageResult.data as Record<string, unknown>, {
+        appended_children: appendResult.data,
+      }) as NotionPageWithOptionalChildren,
+    };
   }
 
   async createDataSource(
