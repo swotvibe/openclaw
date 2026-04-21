@@ -78,8 +78,10 @@ function extractNotionIdCandidate(value: string): string | null {
     .toLowerCase();
 }
 
-function mapCreatePageParent(parent: NotionPageParentInput): Record<string, string> {
-  return parent.type === "page" ? { page_id: parent.id } : { data_source_id: parent.id };
+function mapCreatePageParent(parent: NotionPageParentInput): any {
+  return parent.type === "page" 
+    ? { page_id: parent.id, type: "page_id" as const } 
+    : { data_source_id: parent.id, type: "data_source_id" as const };
 }
 
 function buildDataSourcePropertiesPatch(
@@ -210,7 +212,6 @@ export class NotionApiClient {
     try {
       const result = await this.notionClient.blocks.children.append({
         block_id: blockId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         children: children as any,
       });
       return { ok: true as const, data: result };
@@ -223,7 +224,6 @@ export class NotionApiClient {
     try {
       const updated = await this.notionClient.blocks.update({
         block_id: blockId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...(block as any),
       });
       return { ok: true as const, data: updated };
@@ -271,8 +271,7 @@ export class NotionApiClient {
     try {
       const filter =
         kind && kind !== "all"
-          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ({ property: "object", value: kind } as any)
+          ? ({ property: "object", value: kind } as any)
           : undefined;
 
       const results = await this.notionClient.search({
@@ -424,13 +423,9 @@ export class NotionApiClient {
     try {
       const page = await this.notionClient.pages.create({
         parent: mapCreatePageParent(parent),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         properties: properties as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         children: content as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         icon: icon as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cover: cover as any,
       });
       return { ok: true as const, data: page };
@@ -450,7 +445,6 @@ export class NotionApiClient {
     restore?: boolean,
   ) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateData: any = {};
       if (properties) {
         updateData.properties = properties;
@@ -566,7 +560,7 @@ export class NotionApiClient {
 
   async listUsers() {
     try {
-      const users = await this.notionClient.users.list();
+      const users = await this.notionClient.users.list({});
       return { ok: true as const, data: users };
     } catch (error) {
       return mapNotionError(error);
@@ -597,15 +591,12 @@ export class NotionApiClient {
       if (params.discussionId) {
         const comment = await this.notionClient.comments.create({
           discussion_id: params.discussionId,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           rich_text: params.richText as any,
         });
         return { ok: true as const, data: comment };
       } else if (params.targetId && params.parentType) {
         const comment = await this.notionClient.comments.create({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           parent: { [params.parentType]: params.targetId } as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           rich_text: params.richText as any,
         });
         return { ok: true as const, data: comment };
@@ -624,7 +615,6 @@ export class NotionApiClient {
     try {
       const comment = await this.notionClient.comments.update({
         comment_id: commentId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         rich_text: richText as any,
       });
       return { ok: true as const, data: comment };
@@ -644,9 +634,7 @@ export class NotionApiClient {
     try {
       const results = await this.notionClient.search({
         query,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         filter: filter as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         sort: sort as any,
         page_size: pageSize,
         start_cursor: startCursor,

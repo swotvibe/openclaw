@@ -89,6 +89,12 @@
         "typescript/unbound-method": "off",
         "eslint/no-unsafe-optional-chaining": "off"
       }
+    },
+    {
+      "files": ["extensions/notion/src/**"],
+      "rules": {
+        "typescript/no-explicit-any": "off"
+      }
     }
   ]
 }

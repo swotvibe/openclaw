@@ -54,16 +54,18 @@ const notionPlugin = definePluginEntry({
   name: "Notion",
   description: "Bundled Notion REST plugin",
   configSchema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      safety: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          writeApprovalMode: {
-            type: "string",
-            enum: ["per_call", "disabled"],
+    jsonSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        safety: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            writeApprovalMode: {
+              type: "string",
+              enum: ["per_call", "disabled"],
+            },
           },
         },
       },
@@ -108,17 +110,20 @@ const notionPlugin = definePluginEntry({
             cursor: { type: "string" },
           },
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.search(
             params.query as string,
-            params.kind as string,
+            params.kind as "page" | "data_source" | "all" | undefined,
             params.pageSize as number,
             params.cursor as string,
           );
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_search", optional: true },
@@ -141,7 +146,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["target"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.fetchPage(
             params.target as string,
             params.targetType as "auto" | "page" | "data_source" | undefined,
@@ -152,7 +157,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_fetch", optional: true },
@@ -174,7 +182,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["dataSource"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.queryDataSource(
             params.dataSource as string,
             params.filter,
@@ -185,7 +193,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_query_data_source", optional: true },
@@ -215,9 +226,9 @@ const notionPlugin = definePluginEntry({
           },
           required: ["parent", "properties"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.createPage(
-            params.parent as { type: string; id: string },
+            params.parent as { type: "page" | "data_source"; id: string },
             params.properties,
             params.content,
             params.icon,
@@ -226,7 +237,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { page: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ page: result.data }) }],
+            details: { page: result.data },
+          };
         },
       }),
       { name: "notion_create_page", optional: true },
@@ -252,7 +266,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["pageId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.updatePage(
             params.pageId as string,
             params.properties,
@@ -266,7 +280,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { page: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_update_page", optional: true },
@@ -287,7 +304,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["parentDatabaseId", "title", "properties"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.createDataSource(
             params.parentDatabaseId as string,
             params.title as string,
@@ -297,7 +314,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { dataSource: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ dataSource: result.data }) }],
+            details: { dataSource: result.data },
+          };
         },
       }),
       { name: "notion_create_data_source", optional: true },
@@ -331,7 +351,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["dataSourceId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.updateDataSource(
             params.dataSourceId as string,
             params.title as string,
@@ -344,7 +364,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { dataSource: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ dataSource: result.data }) }],
+            details: { dataSource: result.data },
+          };
         },
       }),
       { name: "notion_update_data_source", optional: true },
@@ -362,12 +385,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.getBlock(params.blockId as string);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { block: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ block: result.data }) }],
+            details: { block: result.data },
+          };
         },
       }),
       { name: "notion_get_block", optional: true },
@@ -387,7 +413,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.getBlockChildren(
             params.blockId as string,
             params.pageSize as number,
@@ -396,7 +422,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_get_block_children", optional: true },
@@ -418,7 +447,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId", "children"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.appendBlockChildren(
             params.blockId as string,
             params.children as unknown[],
@@ -426,7 +455,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_append_block_children", optional: true },
@@ -445,12 +477,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId", "block"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.updateBlock(params.blockId as string, params.block);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { block: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ block: result.data }) }],
+            details: { block: result.data },
+          };
         },
       }),
       { name: "notion_update_block", optional: true },
@@ -468,12 +503,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.deleteBlock(params.blockId as string);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { id: params.blockId, archived: true } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ id: params.blockId, archived: true }) }],
+            details: { id: params.blockId, archived: true },
+          };
         },
       }),
       { name: "notion_delete_block", optional: true },
@@ -491,12 +529,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["databaseId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.getDatabase(params.databaseId as string);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { database: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ database: result.data }) }],
+            details: { database: result.data },
+          };
         },
       }),
       { name: "notion_get_database", optional: true },
@@ -514,12 +555,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["pageId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.deletePage(params.pageId as string);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { page: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ page: result.data }) }],
+            details: { page: result.data },
+          };
         },
       }),
       { name: "notion_delete_page", optional: true },
@@ -538,12 +582,15 @@ const notionPlugin = definePluginEntry({
           },
           required: ["userId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.getUser(params.userId as string);
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { user: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ user: result.data }) }],
+            details: { user: result.data },
+          };
         },
       }),
       { name: "notion_get_user", optional: true },
@@ -558,12 +605,15 @@ const notionPlugin = definePluginEntry({
           type: "object",
           properties: {},
         },
-        async execute() {
+        async execute(_toolCallId: string, _params: any) {
           const result = await notionClient.listUsers();
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_list_users", optional: true },
@@ -584,7 +634,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["blockId"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.getComments(
             params.blockId as string,
             params.pageSize as number,
@@ -593,7 +643,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_get_comments", optional: true },
@@ -616,7 +669,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["richText"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.createComment({
             richText: params.richText as unknown[],
             targetId: params.blockId as string | undefined,
@@ -628,7 +681,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { comment: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ comment: result.data }) }],
+            details: { comment: result.data },
+          };
         },
       }),
       { name: "notion_create_comment", optional: true },
@@ -647,7 +703,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["commentId", "richText"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.updateComment(
             params.commentId as string,
             params.richText as unknown[],
@@ -655,7 +711,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: { comment: result.data } };
+          return {
+            content: [{ type: "text", text: JSON.stringify({ comment: result.data }) }],
+            details: { comment: result.data },
+          };
         },
       }),
       { name: "notion_update_comment", optional: true },
@@ -678,7 +737,7 @@ const notionPlugin = definePluginEntry({
           },
           required: ["query"],
         },
-        async execute(params) {
+        async execute(toolCallId: string, params: any) {
           const result = await notionClient.advancedSearch(
             params.query as string,
             params.filter,
@@ -689,7 +748,10 @@ const notionPlugin = definePluginEntry({
           if (!result.ok) {
             throw mapNotionError(result.error);
           }
-          return { ok: true, data: result.data };
+          return {
+            content: [{ type: "text", text: JSON.stringify(result.data) }],
+            details: result.data,
+          };
         },
       }),
       { name: "notion_advanced_search", optional: true },

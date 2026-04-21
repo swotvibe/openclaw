@@ -1,5 +1,6 @@
 {
   "rules": {
-    "consistent-return": "off"
+    "consistent-return": "off",
+    "@typescript-eslint/no-explicit-any": "off"
   }
 }
