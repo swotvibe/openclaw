@@ -448,7 +448,7 @@ export class NotionApiClient {
   ) {
     const body: Record<string, unknown> = {};
     if (title) {
-      body.title = [{ type: "text", text: { content: title } }];
+      body.title = [{ text: { content: title } }];
     }
     const properties = buildDataSourcePropertiesPatch(addProperties, renameProperties);
     if (properties) {
