@@ -25,19 +25,6 @@ export NOTION_TOKEN="ntn_your_key_here"
 
 4. Share target pages/databases with your integration (click "..." → "Connect to" → your integration name)
 
-## API Basics
-
-All requests need:
-
-```bash
-curl -X GET "https://api.notion.com/v1/..." \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json"
-```
-
-> **Note:** The `Notion-Version` header is required. This skill uses `2026-03-11` (latest). The big database/data-source split happened in `2025-09-03`; `2026-03-11` mainly switches `archived` to `in_trash`, `after` to `position`, and `transcription` to `meeting_notes`.
-
 ## OpenClaw Plugin Tools
 
 The OpenClaw Notion plugin provides 20 tools for working with Notion. Use these tools instead of direct API calls.
@@ -84,7 +71,6 @@ The OpenClaw Notion plugin provides 20 tools for working with Notion. Use these 
 
 **Create a database container with initial data source:**
 
-Use `notion_create_data_source` with a page parent:
 ```
 notion_create_data_source(
   parentId: "page_id_here",
@@ -98,7 +84,6 @@ notion_create_data_source(
 
 **Create a row in a data source:**
 
-Use `notion_create_page` with `data_source_id` parent:
 ```
 notion_create_page(
   parentId: "data_source_id_here",
@@ -111,7 +96,6 @@ notion_create_page(
 
 **Query a data source:**
 
-Use `notion_query_data_source` with filters:
 ```
 notion_query_data_source(
   dataSourceId: "data_source_id_here",
@@ -122,237 +106,30 @@ notion_query_data_source(
 
 **Add blocks to a page:**
 
-Use `notion_append_block_children`:
 ```
 notion_append_block_children(
   blockId: "page_id_here",
   children: [
     { type: "paragraph", paragraph: { rich_text: [{ text: { content: "Hello" } }] } }
   ],
-  position: { before: "block_id" }  // Optional: position parameter (2026-03-11)
+  position: { before: "block_id" }  // Optional
 )
 ```
 
-**Delete a page (move to trash):**
+**Delete a page or data source:**
 
-Use `notion_delete_page`:
 ```
 notion_delete_page(pageId: "page_id_here")
+notion_update_data_source(dataSourceId: "data_source_id_here", inTrash: true)
 ```
-
-**Delete a data source (move to trash):**
-
-Use `notion_update_data_source` with `inTrash: true`:
-```
-notion_update_data_source(
-  dataSourceId: "data_source_id_here",
-  inTrash: true
-)
-```
-
-> **Note:** In API 2026-03-11, deletion uses `in_trash: true` instead of the old `archived: true`. The old method returns 404 "Object not found".
 
 ### Important Notes
 
 - **Parent types:** Use `type: "page"` for page parents and `type: "data_source"` for data source parents
 - **Data source ID:** When creating rows, use the `data_source_id` (not the `database_id`)
 - **Finding data source ID:** Use `notion_fetch` on the database container to get its `data_sources` array
-- **Position parameter:** `notion_append_block_children` supports optional `position` parameter (replaces `after` in 2026-03-11)
-- **Trash:** `notion_delete_page` moves pages to trash (`in_trash: true`)
-
-## Common Operations
-
-**Search for pages and data sources:**
-
-```bash
-curl -X POST "https://api.notion.com/v1/search" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "page title"}'
-```
-
-**Get page:**
-
-```bash
-curl "https://api.notion.com/v1/pages/{page_id}" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11"
-```
-
-**Get page content (blocks):**
-
-```bash
-curl "https://api.notion.com/v1/blocks/{page_id}/children" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11"
-```
-
-**Create page in a data source:**
-
-```bash
-curl -X POST "https://api.notion.com/v1/pages" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "parent": {"data_source_id": "xxx"},
-    "properties": {
-      "Name": {"title": [{"text": {"content": "New Item"}}]},
-      "Status": {"select": {"name": "Todo"}}
-    }
-  }'
-```
-
-**Create a database container with its initial data source:**
-
-```bash
-curl -X POST "https://api.notion.com/v1/databases" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "parent": {"type": "page_id", "page_id": "xxx"},
-    "title": [{"text": {"content": "My Database"}}],
-    "initial_data_source": {
-      "properties": {
-        "Name": {"title": {}},
-        "Status": {"select": {"options": [{"name": "Todo"}, {"name": "Done"}]}}
-      }
-    }
-  }'
-```
-
-**Query a data source (database):**
-
-```bash
-curl -X POST "https://api.notion.com/v1/data_sources/{data_source_id}/query" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "filter": {"property": "Status", "select": {"equals": "Active"}},
-    "sorts": [{"property": "Date", "direction": "descending"}]
-  }'
-```
-
-**Create a data source (database):**
-
-```bash
-curl -X POST "https://api.notion.com/v1/data_sources" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "parent": {"database_id": "xxx"},
-    "title": [{"text": {"content": "My Database"}}],
-    "properties": {
-      "Name": {"title": {}},
-      "Status": {"select": {"options": [{"name": "Todo"}, {"name": "Done"}]}},
-      "Date": {"date": {}}
-    }
-  }'
-```
-
-**Update page properties:**
-
-```bash
-curl -X PATCH "https://api.notion.com/v1/pages/{page_id}" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{"properties": {"Status": {"select": {"name": "Done"}}}}'
-```
-
-**Add blocks to page:**
-
-```bash
-curl -X PATCH "https://api.notion.com/v1/blocks/{page_id}/children" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "children": [
-      {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": "Hello"}}]}}
-    ]
-  }'
-```
-
-## User Operations
-
-**Get user information:**
-
-```bash
-curl "https://api.notion.com/v1/users/{user_id}" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11"
-```
-
-**List all users in workspace:**
-
-```bash
-curl "https://api.notion.com/v1/users" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11"
-```
-
-## Comment Operations
-
-**Get comments for a block or page:**
-
-```bash
-curl "https://api.notion.com/v1/comments?block_id={block_id}" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11"
-```
-
-**Create a comment:**
-
-```bash
-curl -X POST "https://api.notion.com/v1/comments" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "parent": {"page_id": "xxx"},
-    "rich_text": [{"type": "text", "text": {"content": "My comment"}}]
-  }'
-```
-
-**Update a comment:**
-
-```bash
-curl -X PATCH "https://api.notion.com/v1/comments/{comment_id}" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "rich_text": [{"type": "text", "text": {"content": "Updated comment"}}]
-  }'
-```
-
-## Advanced Search
-
-**Advanced search with filters and sorting:**
-
-```bash
-curl -X POST "https://api.notion.com/v1/search" \
-  -H "Authorization: Bearer $NOTION_TOKEN" \
-  -H "Notion-Version: 2026-03-11" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "search term",
-    "filter": {
-      "property": "object",
-      "value": "page"
-    },
-    "sort": {
-      "direction": "descending",
-      "timestamp": "last_edited_time"
-    },
-    "page_size": 50
-  }'
-```
+- **Deletion:** Use `in_trash: true` (2026-03-11 API). The old `archived: true` returns 404.
+- **Position parameter:** `notion_append_block_children` supports optional `position` parameter
 
 ## Property Types
 
@@ -369,29 +146,29 @@ Common property formats for database items:
 - **Email:** `{"email": "a@b.com"}`
 - **Relation:** `{"relation": [{"id": "page_id"}]}`
 
-## Version Notes
+## API Version Notes
 
-- **2025-09-03:** Databases split into database containers plus child data sources.
-- **Page creation:** Use `parent.data_source_id` when creating rows in a table.
-- **Data source operations:** Use `/data_sources/*` or `notion.dataSources.*` for retrieve/query/create/update.
-- **Database container operations:** Use `/databases/*` or `notion.databases.*` to create or inspect the container and discover its `data_sources`.
-- **2026-03-11:** Replace `archived` with `in_trash`, replace append-block `after` with `position`, and replace `transcription` blocks with `meeting_notes`.
-- **Finding the data source ID:** Retrieve the database container and read `data_sources[]`, or copy the data source ID directly from Notion.
+This plugin uses Notion API `2026-03-11`:
+
+- **Database model:** Databases split into containers + child data sources (2025-09-03)
+- **Page creation:** Use `parent.data_source_id` when creating rows
+- **Deletion:** Use `in_trash: true` instead of `archived: true`
+- **Block append:** Use `position` instead of `after`
+- **Meeting notes:** Use `meeting_notes` blocks instead of `transcription`
 
 ## SDK Integration
 
-The OpenClaw Notion plugin uses the official `@notionhq/client` SDK (`v5.19.0` at the time of writing) internally. The SDK handles:
+The OpenClaw Notion plugin uses the official `@notionhq/client` SDK (`v5.19.0`) internally:
 
 - **Authentication:** Bearer token via `NOTION_TOKEN` env var
 - **API versioning:** `Notion-Version: 2026-03-11` header automatically applied
 - **Retry logic:** Built-in retries for `429 rate_limited` and server errors (5xx)
-- **Error handling:** SDK-native error types (`isNotionClientError`, `APIResponseError`) mapped to `NotionApiError`
+- **Error handling:** SDK-native error types mapped to `NotionApiError`
 
-## Notes
+## Limits & Notes
 
 - Page/database IDs are UUIDs (with or without dashes)
-- The API cannot set database view filters — that's UI-only
-- Rate limit: ~3 requests/second average; the SDK auto-retries on `429` responses
-- Append block children: up to 100 children per request, up to two levels of nesting in a single append request
+- Rate limit: ~3 requests/second average; SDK auto-retries on `429`
+- Append block children: up to 100 children per request, 2 levels of nesting
 - Payload size limits: up to 1000 block elements and 500KB overall
-- Use `is_inline: true` when creating data sources to embed them in pages
+- Database view filters cannot be set via API (UI-only)
