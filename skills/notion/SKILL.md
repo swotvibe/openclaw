@@ -38,6 +38,116 @@ curl -X GET "https://api.notion.com/v1/..." \
 
 > **Note:** The `Notion-Version` header is required. This skill uses `2026-03-11` (latest). The big database/data-source split happened in `2025-09-03`; `2026-03-11` mainly switches `archived` to `in_trash`, `after` to `position`, and `transcription` to `meeting_notes`.
 
+## OpenClaw Plugin Tools
+
+The OpenClaw Notion plugin provides 20 tools for working with Notion. Use these tools instead of direct API calls.
+
+### Tool List
+
+**Search & Fetch:**
+- `notion_search` - Search pages and data sources
+- `notion_fetch` - Fetch a page or data source by ID
+- `notion_query_data_source` - Query a data source with filters and sorting
+
+**Page Operations:**
+- `notion_create_page` - Create a page in a data source
+- `notion_update_page` - Update page properties or content
+- `notion_delete_page` - Move page to trash
+
+**Data Source Operations:**
+- `notion_create_data_source` - Create a data source in a database container
+- `notion_update_data_source` - Update data source properties
+
+**Block Operations:**
+- `notion_get_block` - Get a block by ID
+- `notion_get_block_children` - Get block children with pagination
+- `notion_append_block_children` - Add blocks to a page/block
+- `notion_update_block` - Update block content
+- `notion_delete_block` - Delete/archive a block
+
+**Database Operations:**
+- `notion_get_database` - Get database container metadata
+
+**User Operations:**
+- `notion_get_user` - Get user by ID
+- `notion_list_users` - List all workspace users
+
+**Comment Operations:**
+- `notion_get_comments` - Get comments for a block/page
+- `notion_create_comment` - Create a comment
+- `notion_update_comment` - Update a comment
+
+**Advanced Search:**
+- `notion_advanced_search` - Advanced search with filters, sorting, pagination
+
+### Tool Usage Examples
+
+**Create a database container with initial data source:**
+
+Use `notion_create_data_source` with a page parent:
+```
+notion_create_data_source(
+  parentId: "page_id_here",
+  title: "My Database",
+  properties: {
+    "Name": { title: {} },
+    "Status": { select: { options: [{ name: "Todo" }, { name: "Done" }] } }
+  }
+)
+```
+
+**Create a row in a data source:**
+
+Use `notion_create_page` with `data_source_id` parent:
+```
+notion_create_page(
+  parentId: "data_source_id_here",
+  properties: {
+    "Name": { title: [{ text: { content: "New Item" } }] },
+    "Status": { select: { name: "Todo" } }
+  }
+)
+```
+
+**Query a data source:**
+
+Use `notion_query_data_source` with filters:
+```
+notion_query_data_source(
+  dataSourceId: "data_source_id_here",
+  filter: { property: "Status", select: { equals: "Active" } },
+  sorts: [{ property: "Date", direction: "descending" }]
+)
+```
+
+**Add blocks to a page:**
+
+Use `notion_append_block_children`:
+```
+notion_append_block_children(
+  blockId: "page_id_here",
+  children: [
+    { type: "paragraph", paragraph: { rich_text: [{ text: { content: "Hello" } }] } }
+  ],
+  position: { before: "block_id" }  // Optional: position parameter (2026-03-11)
+)
+```
+
+**Delete a page (move to trash):**
+
+Use `notion_delete_page`:
+```
+notion_delete_page(pageId: "page_id_here")
+```
+
+### Important Notes
+
+- **Parent types:** Use `type: "page"` for page parents and `type: "data_source"` for data source parents
+- **Data source ID:** When creating rows, use the `data_source_id` (not the `database_id`)
+- **Finding data source ID:** Use `notion_fetch` on the database container to get its `data_sources` array
+- **Position parameter:** `notion_append_block_children` supports optional `position` parameter (replaces `after` in 2026-03-11)
+- **Trash:** `notion_delete_page` moves pages to trash (`in_trash: true`)
+
 ## Common Operations
 
 **Search for pages and data sources:**
