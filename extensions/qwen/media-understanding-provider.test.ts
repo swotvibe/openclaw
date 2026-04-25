@@ -1,109 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { createRequestCaptureJsonFetch } from "../../test/helpers/plugins/media-understanding.js";
+import { describe, expect, it } from "vitest";
 import {
-  describeQwenVideo,
-  extractAudioFormat,
-  transcribeQwenAudio,
-} from "./media-understanding-provider.js";
+  createRequestCaptureJsonFetch,
+  installPinnedHostnameTestHooks,
+} from "../../src/media-understanding/audio.test-helpers.js";
+import { describeQwenVideo } from "./media-understanding-provider.js";
 
-describe("extractAudioFormat", () => {
-  it.each([
-    ["audio/wav", "wav"],
-    ["audio/mp3", "mp3"],
-    ["audio/mpeg", "mpeg"],
-    ["audio/ogg", "ogg"],
-    ["audio/ogg; codecs=opus", "ogg"],
-    [" Audio/Ogg; codecs=opus ", "ogg"],
-    ["audio/oga", "ogg"],
-    ["audio/opus", "opus"],
-    ["audio/m4a", "m4a"],
-    ["audio/flac", "flac"],
-    ["audio/webm", "webm"],
-    [undefined, "wav"],
-    ["", "wav"],
-    ["application/octet-stream", "octet-stream"],
-  ])("maps %s => %s", (mime, expected) => {
-    expect(extractAudioFormat(mime)).toBe(expected);
-  });
-});
-
-describe("transcribeQwenAudio", () => {
-  const mockAudioBuffer = Buffer.from("fake-audio-bytes");
-
-  function createSseResponse(chunks: string[]) {
-    const body = chunks
-      .map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n`)
-      .join("")
-      .concat("data: [DONE]\n");
-    return new Response(
-      new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(body));
-          controller.close();
-        },
-      }),
-      {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      },
-    );
-  }
-
-  it("sends the correct format for audio/ogg; codecs=opus", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(createSseResponse(["hello", " world"]));
-
-    await transcribeQwenAudio({
-      buffer: mockAudioBuffer,
-      fileName: "voice.ogg",
-      mime: "audio/ogg; codecs=opus",
-      apiKey: "test-key",
-      timeoutMs: 5000,
-      baseUrl: "https://example.com/v1",
-      model: "qwen3.5-omni-flash",
-      fetchFn: fetchFn as unknown as typeof fetch,
-    });
-
-    const call = fetchFn.mock.calls[0];
-    const body = JSON.parse(call[1]?.body as string);
-    const inputAudio = body.messages[0].content[1].input_audio;
-    expect(inputAudio.format).toBe("ogg");
-    expect(inputAudio.data).toContain("audio/ogg; codecs=opus");
-  });
-
-  it("defaults to wav when MIME type is missing", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(createSseResponse(["transcribed"]));
-
-    await transcribeQwenAudio({
-      buffer: mockAudioBuffer,
-      fileName: "audio",
-      mime: "",
-      apiKey: "test-key",
-      timeoutMs: 5000,
-      fetchFn: fetchFn as unknown as typeof fetch,
-    });
-
-    const call = fetchFn.mock.calls[0];
-    const body = JSON.parse(call[1]?.body as string);
-    expect(body.messages[0].content[1].input_audio.format).toBe("wav");
-  });
-
-  it("extracts opus format from audio/opus MIME", async () => {
-    const fetchFn = vi.fn().mockResolvedValue(createSseResponse(["test"]));
-
-    await transcribeQwenAudio({
-      buffer: mockAudioBuffer,
-      fileName: "audio.opus",
-      mime: "audio/opus",
-      apiKey: "test-key",
-      timeoutMs: 5000,
-      fetchFn: fetchFn as unknown as typeof fetch,
-    });
-
-    const call = fetchFn.mock.calls[0];
-    const body = JSON.parse(call[1]?.body as string);
-    expect(body.messages[0].content[1].input_audio.format).toBe("opus");
-  });
-});
+installPinnedHostnameTestHooks();
 
 describe("describeQwenVideo", () => {
   it("builds the expected OpenAI-compatible video payload", async () => {

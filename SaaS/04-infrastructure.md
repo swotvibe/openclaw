@@ -8,6 +8,8 @@
 
 ## 1. Target Deployment Topology
 
+This topology assumes the **primary SaaS UI is a custom product surface** owned by this project. The built-in Gateway Control UI remains an operator/developer surface unless a change is generic enough to upstream cleanly.
+
 ```
                          ┌──────────────────────┐
                          │    CDN / WAF          │
@@ -54,6 +56,13 @@
 
 ## 2. Component Specifications
 
+### 2.0 UI Boundary
+
+| Surface | Role | Architectural Rule |
+|---------|------|---------------------|
+| **Custom SaaS UI** | Primary tenant/admin product surface | Keep in a separate app/package; consume stable control-plane APIs |
+| **Built-in Gateway Control UI** | Operator/developer console | Reuse only for generic upstream-friendly capabilities; do not make it the main SaaS tenant console by default |
+
 ### 2.1 Gateway Instances (Stateless)
 
 | Parameter | Value | Rationale |
@@ -81,6 +90,8 @@ const sessionStore = await dbSessionStore.load(tenantId, sessionKey);  // Postgr
 const config = await dbConfigStore.load(tenantId);                     // PostgreSQL (cached)
 const allowFrom = await dbAllowlistStore.check(tenantId, channelAccountId, senderId); // PostgreSQL
 ```
+
+**Upstream compatibility rule:** prefer adding stable APIs and backend contracts that both upstream OpenClaw and the custom SaaS UI can consume. Avoid product-specific forks inside the built-in Control UI unless there is a strong reason and an explicit maintenance owner.
 
 ### 2.2 PostgreSQL Primary
 

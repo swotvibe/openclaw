@@ -14,6 +14,7 @@
 4. **Incremental** — each phase delivers independently testable value
 5. **Self-hosted preservation** — filesystem path remains functional as fallback; feature flags gate SaaS paths
 6. **Data integrity** — checksums and reconciliation at every migration boundary
+7. **Upstream-friendly customization** — keep product-specific SaaS UI and orchestration outside deep core forks so pulling updates from the official repository remains practical
 
 ---
 
@@ -75,6 +76,7 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
 - Database abstraction layer introduced
 - Auth service operational (JWT + OIDC)
 - Self-hosted mode unchanged
+- Stable control-plane API boundary defined for the custom SaaS UI
 
 ### 3.2 Implementation Steps
 
@@ -118,6 +120,25 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
 
 4. Integration test:
    - Create tenant → create user → add member → verify RLS isolation
+```
+
+#### Step 0.2.1 — Product Boundary for Custom UI
+
+```
+1. Define a stable control-plane API surface for the custom SaaS UI:
+   - tenant management
+   - onboarding/provisioning
+   - billing and subscription reads/writes
+   - audit/event visibility
+
+2. Keep product-specific UI code in a separate app/package:
+   - examples: apps/saas-admin/, ui-saas/, or equivalent
+   - avoid turning the built-in Gateway Control UI into the primary tenant-facing SaaS console
+
+3. Route generic capabilities upstream-friendly into core:
+   - auth/session APIs
+   - tenant-aware config/session/secrets interfaces
+   - audit/event contracts
 ```
 
 #### Step 0.3 — Auth Service

@@ -32,6 +32,21 @@ OpenClaw today is a **single-tenant, self-hosted** multi-channel AI gateway with
 
 ---
 
+## Additional Owner Constraints
+
+These constraints are now part of the plan:
+
+- **Keep pulling upstream updates from the official OpenClaw repository.**
+  The SaaS implementation should minimize long-lived fork pressure and avoid deep edits to core surfaces unless they are generic and upstream-friendly.
+- **Build a custom UI owned by this project.**
+  The plan should not assume reuse of the existing Gateway Control UI as the primary SaaS admin surface.
+- **Prefer additive seams over invasive rewrites.**
+  New SaaS code should live behind new services, adapters, APIs, plugins, or apps so rebasing onto upstream remains practical.
+- **Treat upstream compatibility as a product requirement.**
+  If a change makes future pulls from the official repository materially harder, it should be treated as architectural debt and justified explicitly.
+
+---
+
 ## Target State (Summary)
 
 A **multi-tenant SaaS platform** where:
@@ -42,6 +57,8 @@ A **multi-tenant SaaS platform** where:
 - Gateway instances are **stateless and horizontally scalable** — no shared filesystem
 - **Self-hosted mode is preserved** as a feature-flag-gated single-tenant deployment
 - **Audit trail** captures every sensitive operation immutably
+- **Custom SaaS UI is separate** from the built-in Gateway Control UI
+- **Upstream repo sync remains practical** throughout the transformation
 
 ---
 

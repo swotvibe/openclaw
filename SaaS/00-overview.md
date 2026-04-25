@@ -39,6 +39,7 @@ OpenClaw is a **multi-channel AI gateway** that routes messages across 20+ messa
 3. **Security posture** — existing secrets resolution, host env security policies, CSP, rate limiting
 4. **Channel abstraction** — unified `ChannelId` + routing layer decouples channels from core logic
 5. **Session key design** — structured `agent:{agentId}:{key}` format supports future scoping
+6. **Upstream repository velocity** — the ability to keep pulling updates from the official OpenClaw repository is itself an architectural advantage worth preserving
 
 ---
 
@@ -53,6 +54,14 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 - **Secrets** are encrypted per-tenant with tenant-scoped key hierarchies
 - **Horizontal scaling** is achievable without filesystem coupling
 - The **self-hosted mode** remains supported as a degenerate single-tenant deployment
+- A **custom SaaS UI** owned by this project can evolve independently from the built-in Gateway Control UI
+
+### 2.1.1 Additional Product Constraints
+
+- The implementation must continue to support **practical upstream pulls** from the official OpenClaw repository
+- The primary **SaaS UI is custom-built** and should not require turning the existing Gateway Control UI into the tenant-facing product surface
+- Generic seams that improve OpenClaw broadly can live in core; product-specific SaaS UI and orchestration should live in a separate app or package where possible
+- Architectural choices that create a hard long-lived fork of core UI or core gateway behavior should be treated as explicit debt, not accidental fallout
 
 ### 2.2 Tenancy Model Decision
 
@@ -91,6 +100,7 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 | **Plugin compatibility** | Medium — ecosystem breakage | Versioned Plugin SDK; tenant context injected via existing `deps` pattern |
 | **Performance regression** | Medium — user-facing latency | Benchmark filesystem vs. DB latency before/after; connection pooling; read replicas |
 | **Self-hosted mode breakage** | Medium — existing user impact | SQLite fallback for single-tenant; feature flags gate SaaS-only paths |
+| **Upstream drift from official repo** | High — long-term maintenance cost | Keep SaaS-specific UI and product workflows outside deep core forks; upstream only generic seams and contracts |
 
 ### 3.2 Non-Negotiable Constraints
 
@@ -99,6 +109,7 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 3. **Plugin SDK stability** — existing plugins must work without modification in Phase 1
 4. **No plaintext secrets at rest** — all tenant credentials encrypted with per-tenant keys
 5. **Audit trail** — every sensitive operation (secret access, config change, admin action) logged immutably
+6. **Official upstream pulls remain feasible** — avoid unnecessary permanent forks of the built-in UI or gateway internals
 
 ---
 
@@ -140,7 +151,7 @@ Phase 2 — Channel Isolation   [Weeks 11–14]
 Phase 3 — Platform Layer      [Weeks 15–18]
   ├── Billing/subscription tables
   ├── Usage metering
-  ├── Admin dashboard
+  ├── Custom SaaS admin UI
   └── Tenant onboarding flow
 
 Phase 4 — Hardening           [Weeks 19–22]

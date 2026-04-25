@@ -14,10 +14,10 @@ import {
   MODELSTUDIO_DEFAULT_MODEL_ID,
   XIAOMI_DEFAULT_MODEL_ID,
   buildXiaomiProvider,
-} from "../plugin-sdk/provider-catalog.js";
+} from "../plugins/provider-catalog.js";
 import { isRecord } from "../utils.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
-import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
+import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-stream.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
 import {
@@ -38,7 +38,7 @@ export {
   buildQianfanProvider,
   XIAOMI_DEFAULT_MODEL_ID,
   buildXiaomiProvider,
-} from "../plugin-sdk/provider-catalog.js";
+} from "../plugins/provider-catalog.js";
 import {
   groupPluginDiscoveryProvidersByOrder,
   normalizePluginDiscoveryResult,
