@@ -224,13 +224,6 @@ async function sanitizeImagesWithLog(
 export function detectImageReferences(prompt: string): DetectedImageRef[] {
   const refs: DetectedImageRef[] = [];
   const seen = new Set<string>();
-  // Strip already-parsed [media attached: ...] blocks from the generic path
-  // scan so a managed media:// ref does not also re-register the raw host path
-  // from the same attachment note.
-  const promptWithoutMediaAttached = prompt.replace(
-    /\[media attached(?:\s+\d+\/\d+)?:\s*[^\]]+\]/gi,
-    " ",
-  );
 
   // Helper to add a path ref
   const addPathRef = (raw: string) => {
@@ -297,7 +290,7 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
   }
 
   // Pattern for [Image: source: /path/...] format from messaging systems
-  while ((match = messageImagePattern.exec(promptWithoutMediaAttached)) !== null) {
+  while ((match = messageImagePattern.exec(prompt)) !== null) {
     const raw = match[1]?.trim();
     if (raw) {
       addPathRef(raw);
@@ -307,7 +300,7 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
   // Remote HTTP(S) URLs are intentionally ignored. Native image injection is local-only.
 
   // Pattern for file:// URLs - treat as paths since loadWebMedia handles them
-  while ((match = fileUrlPattern.exec(promptWithoutMediaAttached)) !== null) {
+  while ((match = fileUrlPattern.exec(prompt)) !== null) {
     const raw = match[0];
     const dedupeKey = normalizeRefForDedupe(raw);
     if (seen.has(dedupeKey)) {
@@ -329,7 +322,7 @@ export function detectImageReferences(prompt: string): DetectedImageRef[] {
   // - ./relative/path.ext
   // - ../parent/path.ext
   // - ~/home/path.ext
-  while ((match = pathPattern.exec(promptWithoutMediaAttached)) !== null) {
+  while ((match = pathPattern.exec(prompt)) !== null) {
     // Use capture group 1 (the path without delimiter prefix); skip if undefined
     if (match[1]) {
       addPathRef(match[1]);
@@ -418,9 +411,9 @@ export async function loadImageFromRef(
     } else if (!path.isAbsolute(targetPath)) {
       targetPath = path.resolve(workspaceDir, targetPath);
     }
-    // Skip workspaceOnly check for media-uri refs since they use localRoots: [getMediaDir()]
-    // which defines allowed paths via assertLocalMediaAllowed in loadWebMedia
-    if (options?.workspaceOnly && !options?.sandbox && ref.type !== "media-uri") {
+    // workspaceOnly applies only to regular path refs; media-uri refs are handled
+    // exclusively in the early-return block above and cannot reach this point.
+    if (options?.workspaceOnly && !options?.sandbox) {
       const root = options?.sandbox?.root ?? workspaceDir;
       await assertSandboxPath({
         filePath: targetPath,
