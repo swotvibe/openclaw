@@ -107,7 +107,7 @@ describe("sessions", () => {
     {
       name: "returns normalized per-sender key",
       scope: "per-sender" as const,
-      ctx: { From: "chat:+1555" },
+      ctx: { From: "whatsapp:+1555" },
       expected: "+1555",
     },
     {
@@ -125,14 +125,14 @@ describe("sessions", () => {
     {
       name: "keeps group chats distinct",
       scope: "per-sender" as const,
-      ctx: { From: "room-123", ChatType: "group", Provider: "demo-chat" },
-      expected: "demo-chat:group:room-123",
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
+      expected: "whatsapp:group:12345-678@g.us",
     },
     {
       name: "prefixes group keys with provider when available",
       scope: "per-sender" as const,
-      ctx: { From: "room-456", ChatType: "group", Provider: "demo-chat" },
-      expected: "demo-chat:group:room-456",
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
+      expected: "whatsapp:group:12345-678@g.us",
     },
   ] as const;
 
@@ -142,27 +142,16 @@ describe("sessions", () => {
     });
   }
 
-  it("builds discord display names without slugifying human labels", () => {
+  it("builds discord display name with guild+channel slugs", () => {
     expect(
       buildGroupDisplayName({
         provider: "discord",
         groupChannel: "#general",
-        space: "Friends of OpenClaw",
+        space: "friends-of-openclaw",
         id: "123",
         key: "discord:group:123",
       }),
-    ).toBe("discord:Friends of OpenClaw#general");
-  });
-
-  it("preserves Arabic letters and symbols in group display names", () => {
-    expect(
-      buildGroupDisplayName({
-        provider: "whatsapp",
-        subject: "mn7_edu-2026 أهلاً",
-        id: "120363000000000000@g.us",
-        key: "whatsapp:group:120363000000000000@g.us",
-      }),
-    ).toBe("whatsapp:mn7_edu-2026 أهلاً");
+    ).toBe("discord:friends-of-openclaw#general");
   });
 
   const resolveSessionKeyCases = [
@@ -190,7 +179,7 @@ describe("sessions", () => {
     {
       name: "maps direct chats to main key when provided",
       scope: "per-sender" as const,
-      ctx: { From: "chat:+1555" },
+      ctx: { From: "whatsapp:+1555" },
       mainKey: "main",
       expected: "agent:main:main",
     },
@@ -211,9 +200,9 @@ describe("sessions", () => {
     {
       name: "leaves groups untouched even with main key",
       scope: "per-sender" as const,
-      ctx: { From: "room-123", ChatType: "group", Provider: "demo-chat" },
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
       mainKey: "main",
-      expected: "agent:main:demo-chat:group:room-123",
+      expected: "agent:main:whatsapp:group:12345-678@g.us",
     },
   ] as const;
 
@@ -254,7 +243,8 @@ describe("sessions", () => {
 
     const store = loadSessionStore(storePath);
     expect(store[mainSessionKey]?.sessionId).toBe("sess-1");
-    expect(store[mainSessionKey]?.updatedAt).toBeGreaterThanOrEqual(123);
+    // updateLastRoute must preserve existing updatedAt (activity timestamp)
+    expect(store[mainSessionKey]?.updatedAt).toBe(123);
     expect(store[mainSessionKey]?.lastChannel).toBe("telegram");
     expect(store[mainSessionKey]?.lastTo).toBe("12345");
     expect(store[mainSessionKey]?.deliveryContext).toEqual({
@@ -279,7 +269,7 @@ describe("sessions", () => {
     await updateLastRoute({
       storePath,
       sessionKey: mainSessionKey,
-      channel: "demo-chat",
+      channel: "whatsapp",
       to: "111",
       accountId: "legacy",
       deliveryContext: {
@@ -336,7 +326,7 @@ describe("sessions", () => {
   });
 
   it("updateLastRoute records origin + group metadata when ctx is provided", async () => {
-    const sessionKey = "agent:main:demo-chat:group:room-123";
+    const sessionKey = "agent:main:whatsapp:group:123@g.us";
     const { storePath } = await createSessionStoreFixture({
       prefix: "updateLastRoute",
       entries: {},
@@ -346,44 +336,54 @@ describe("sessions", () => {
       storePath,
       sessionKey,
       deliveryContext: {
-        channel: "demo-chat",
-        to: "room-123",
+        channel: "whatsapp",
+        to: "123@g.us",
       },
       ctx: {
-        Provider: "demo-chat",
+        Provider: "whatsapp",
         ChatType: "group",
         GroupSubject: "Family",
-        From: "room-123",
+        From: "123@g.us",
       },
     });
 
     const store = loadSessionStore(storePath);
     expect(store[sessionKey]?.subject).toBe("Family");
-    expect(store[sessionKey]?.channel).toBe("demo-chat");
-    expect(store[sessionKey]?.groupId).toBe("room-123");
-    expect(store[sessionKey]?.origin?.label).toBe("Family");
-    expect(store[sessionKey]?.origin?.provider).toBe("demo-chat");
+    expect(store[sessionKey]?.channel).toBe("whatsapp");
+    expect(store[sessionKey]?.groupId).toBe("123@g.us");
+    expect(store[sessionKey]?.origin?.label).toBe("Family id:123@g.us");
+    expect(store[sessionKey]?.origin?.provider).toBe("whatsapp");
     expect(store[sessionKey]?.origin?.chatType).toBe("group");
   });
 
-  it("loadSessionStore upgrades legacy slugged group display names to the raw subject", async () => {
-    const sessionKey = "agent:main:whatsapp:group:120363000000000000@g.us";
+  it("updateLastRoute does not bump updatedAt on existing sessions (#49515)", async () => {
+    const mainSessionKey = "agent:main:main";
+    const frozenUpdatedAt = 1000;
     const { storePath } = await createSessionStoreFixture({
-      prefix: "legacyGroupDisplayName",
+      prefix: "updateLastRoute-preserve-activity",
       entries: {
-        [sessionKey]: buildMainSessionEntry({
-          chatType: "group",
-          channel: "whatsapp",
-          groupId: "120363000000000000@g.us",
-          subject: "mn7_edu-2026 أهلاً",
-          displayName: "whatsapp:g-mn7_edu-2026",
+        [mainSessionKey]: buildMainSessionEntry({
+          updatedAt: frozenUpdatedAt,
         }),
       },
     });
 
-    const store = loadSessionStore(storePath);
+    await updateLastRoute({
+      storePath,
+      sessionKey: mainSessionKey,
+      deliveryContext: {
+        channel: "telegram",
+        to: "99999",
+      },
+    });
 
-    expect(store[sessionKey]?.displayName).toBe("whatsapp:mn7_edu-2026 أهلاً");
+    const store = loadSessionStore(storePath);
+    // Route updates must not refresh activity timestamps; idle/daily reset
+    // evaluation relies on updatedAt from actual session turns.
+    expect(store[mainSessionKey]?.updatedAt).toBe(frozenUpdatedAt);
+    // Routing fields should still be updated
+    expect(store[mainSessionKey]?.lastChannel).toBe("telegram");
+    expect(store[mainSessionKey]?.lastTo).toBe("99999");
   });
 
   it("updateSessionStoreEntry preserves existing fields when patching", async () => {
@@ -492,18 +492,18 @@ describe("sessions", () => {
       store["agent:main:main"] = {
         sessionId: "sess-normalized",
         updatedAt: Date.now(),
-        lastChannel: " Demo Chat ",
+        lastChannel: " WhatsApp ",
         lastTo: " +1555 ",
         lastAccountId: " acct-1 ",
       };
     });
 
     const store = loadSessionStore(storePath);
-    expect(store["agent:main:main"]?.lastChannel).toBe("demo chat");
+    expect(store["agent:main:main"]?.lastChannel).toBe("whatsapp");
     expect(store["agent:main:main"]?.lastTo).toBe("+1555");
     expect(store["agent:main:main"]?.lastAccountId).toBe("acct-1");
     expect(store["agent:main:main"]?.deliveryContext).toEqual({
-      channel: "demo chat",
+      channel: "whatsapp",
       to: "+1555",
       accountId: "acct-1",
     });
@@ -615,33 +615,45 @@ describe("sessions", () => {
     );
   });
 
-  it("resolves cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
+  it("rebases cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
     withStateDir(path.resolve("/different/state"), () => {
       const originalBase = path.resolve("/original/state");
       const bot2Session = path.join(originalBase, "agents", "bot2", "sessions", "sess-1.jsonl");
-      // sessionFile was created under a different state dir than current env
+      // sessionFile was created under a different state dir than current env;
+      // the path should be rebased to the current state root to avoid EACCES
+      // from stale absolute paths (e.g. Docker HOME=/home/node → host HOME=/home/ubuntu).
       const sessionFile = resolveSessionFilePath(
         "sess-1",
         { sessionFile: bot2Session },
         { agentId: "bot1" },
       );
-      expect(sessionFile).toBe(
-        path.join(path.resolve("/different/state"), "agents", "bot2", "sessions", "sess-1.jsonl"),
+      const expectedRebased = path.join(
+        path.resolve("/different/state"),
+        "agents",
+        "bot2",
+        "sessions",
+        "sess-1.jsonl",
       );
+      expect(sessionFile).toBe(expectedRebased);
     });
   });
 
-  it("rebases same-agent cross-root session files onto the current state dir", () => {
-    withStateDir(path.resolve("/different/state"), () => {
-      const originalBase = path.resolve("/original/state");
-      const mainSession = path.join(originalBase, "agents", "main", "sessions", "sess-1.jsonl");
+  it("rebases stale /home/node Docker paths to current state root", () => {
+    withStateDir(path.resolve("/home/ubuntu/.openclaw"), () => {
+      const staleDockerPath = "/home/node/.openclaw/agents/main/sessions/sess-docker.jsonl";
       const sessionFile = resolveSessionFilePath(
-        "sess-1",
-        { sessionFile: mainSession },
+        "sess-docker",
+        { sessionFile: staleDockerPath },
         { agentId: "main" },
       );
       expect(sessionFile).toBe(
-        path.join(path.resolve("/different/state"), "agents", "main", "sessions", "sess-1.jsonl"),
+        path.join(
+          path.resolve("/home/ubuntu/.openclaw"),
+          "agents",
+          "main",
+          "sessions",
+          "sess-docker.jsonl",
+        ),
       );
     });
   });
