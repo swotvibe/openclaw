@@ -3,6 +3,8 @@
   "enabledByDefault": true,
   "providers": ["qwen"],
   "contracts": {
+    "speechProviders": ["qwen"],
+    "realtimeVoiceProviders": ["qwen"],
     "mediaUnderstandingProviders": ["qwen"],
     "videoGenerationProviders": ["qwen"]
   },
