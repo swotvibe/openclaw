@@ -3,8 +3,11 @@ import { describePluginRegistrationContract } from "../../test/helpers/plugins/p
 describePluginRegistrationContract({
   pluginId: "qwen",
   providerIds: ["qwen"],
+  speechProviderIds: ["qwen"],
+  realtimeVoiceProviderIds: ["qwen"],
   mediaUnderstandingProviderIds: ["qwen"],
   videoGenerationProviderIds: ["qwen"],
+  requireSpeechVoices: true,
   requireDescribeImages: true,
   requireGenerateVideo: true,
 });
