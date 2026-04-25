@@ -4,7 +4,7 @@ import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { clearBootstrapSnapshotOnSessionRollover } from "../../agents/bootstrap-cache.js";
 import { getCliSessionBinding } from "../../agents/cli-session.js";
 import { resetRegisteredAgentHarnessSessions } from "../../agents/harness/registry.js";
-import { disposeSessionMcpRuntime } from "../../agents/pi-bundle-mcp-tools.js";
+import { retireSessionMcpRuntime } from "../../agents/pi-bundle-mcp-tools.js";
 import { normalizeChatType } from "../../channels/chat-type.js";
 import { resolveGroupSessionKey } from "../../config/sessions/group.js";
 import { canonicalizeMainSessionAlias } from "../../config/sessions/main-session.js";
@@ -45,8 +45,6 @@ import {
   normalizeOptionalString,
 } from "../../shared/string-coerce.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.shared.js";
-import { isInternalMessageChannel } from "../../utils/message-channel.js";
-import { resolveCommandAuthorization } from "../command-auth.js";
 import { normalizeCommandBody } from "../commands-registry.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
 import { resolveEffectiveResetTargetSessionKey } from "./acp-reset-target.js";
@@ -54,6 +52,7 @@ import { parseSoftResetCommand } from "./commands-reset-mode.js";
 import { resolveConversationBindingContextFromMessage } from "./conversation-binding-input.js";
 import { normalizeInboundTextNewlines } from "./inbound-text.js";
 import { stripMentions, stripStructuralPrefixes } from "./mentions.js";
+import { isResetAuthorizedForContext } from "./reset-authorization.js";
 import {
   maybeRetireLegacyMainDeliveryRoute,
   resolveLastChannelRaw,
@@ -163,29 +162,6 @@ export type SessionInitResult = {
   bodyStripped?: string;
   triggerBodyNormalized: string;
 };
-
-function isResetAuthorizedForContext(params: {
-  ctx: MsgContext;
-  cfg: OpenClawConfig;
-  commandAuthorized: boolean;
-}): boolean {
-  const auth = resolveCommandAuthorization(params);
-  if (!params.commandAuthorized && !auth.isAuthorizedSender) {
-    return false;
-  }
-  const provider = params.ctx.Provider;
-  const internalGatewayCaller = provider
-    ? isInternalMessageChannel(provider)
-    : isInternalMessageChannel(params.ctx.Surface);
-  if (!internalGatewayCaller) {
-    return true;
-  }
-  const scopes = params.ctx.GatewayClientScopes;
-  if (!Array.isArray(scopes) || scopes.length === 0) {
-    return true;
-  }
-  return scopes.includes("operator.admin");
-}
 
 function resolveSessionConversationBindingContext(
   cfg: OpenClawConfig,
@@ -815,13 +791,14 @@ export async function initSessionState(params: {
       agentId,
       archivedTranscripts,
     });
-    await disposeSessionMcpRuntime(previousSessionEntry.sessionId).catch((error) => {
-      log.warn(
-        `failed to dispose bundle MCP runtime for session ${previousSessionEntry.sessionId}`,
-        {
+    await retireSessionMcpRuntime({
+      sessionId: previousSessionEntry.sessionId,
+      reason: "reply-session-rollover",
+      onError: (error, sessionId) => {
+        log.warn(`failed to dispose bundle MCP runtime for session ${sessionId}`, {
           error: String(error),
-        },
-      );
+        });
+      },
     });
     await resetRegisteredAgentHarnessSessions({
       sessionId: previousSessionEntry.sessionId,
