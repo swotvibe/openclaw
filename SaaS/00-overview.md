@@ -17,19 +17,20 @@ OpenClaw is a **multi-channel AI gateway** that routes messages across 20+ messa
 | **Configuration** | Single JSON5 file (`~/.openclaw/openclaw.json`) | No tenant isolation; single config governs all behavior |
 | **Sessions** | JSON files on local filesystem (`sessions/store.ts`) with file-level locking | No multi-tenant session separation; file I/O does not scale horizontally |
 | **Secrets/Credentials** | Env vars, file-based, or exec-based providers (`src/secrets/`) | Secrets are global; no per-tenant vault isolation |
-| **Auth Profiles** | JSON file (`auth-profiles.json`) in state dir | Single set of provider credentials; no tenant-scoped API keys |
+| **Auth Profiles** | Root/per-agent JSON stores with subagent inheritance from the main agent store | Secret-bearing credentials can bleed across shared runtimes if not reworked for tenancy |
 | **Pairing/Allowlists** | Per-channel JSON files (`{channel}-allowFrom.json`, `{channel}-pairing.json`) | Flat files; no tenant scoping |
-| **Memory/RAG** | Builtin or QMD (LanceDB vector store) | Single vector namespace; no tenant data boundaries |
+| **Task Registry / Background Work** | Local SQLite (`tasks/runs.sqlite`) for durable task state | Hidden local state outside tenant DB plan; not safe to expose directly in SaaS |
+| **Memory/RAG** | Built-in per-agent SQLite store by default; optional external/QMD stores | Local state and embeddings are not tenant-scoped today |
 | **Media** | Local filesystem with optional TTL cleanup | No tenant-scoped storage quotas or isolation |
 | **Gateway Auth** | Token/password, Tailscale, trusted-proxy | No user accounts, no RBAC, no tenant identity |
 
 ### 1.2 Key Architectural Characteristics
 
-- **No relational database** — entire persistence layer is JSON files on disk
-- **No user/account management system** — gateway uses bearer tokens, not user identities
+- **No shared relational control-plane database** — persistence is mostly flat files with additional local SQLite stores
+- **No SaaS user/account management system** — gateway uses operator auth, not tenant identities
 - **No multi-tenancy primitives** — `accountId` exists in routing but maps to channel bot accounts, not SaaS tenants
 - **Plugin SDK** — rich extension system (`extensions/`) with well-defined boundaries
-- **Stateless gateway core** — the HTTP/WS gateway itself is largely stateless; state lives in files
+- **Gateway core is only partially stateless today** — HTTP/WS handling is mostly stateless, but durable runtime state still lives in files and local SQLite
 - **Config-driven architecture** — behavior controlled via `openclaw.json` with env var substitution and `$include` directives
 
 ### 1.3 Strengths to Preserve
@@ -60,6 +61,7 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 
 - The implementation must continue to support **practical upstream pulls** from the official OpenClaw repository
 - The primary **SaaS UI is custom-built** and should not require turning the existing Gateway Control UI into the tenant-facing product surface
+- **Tenant-facing SaaS APIs must be separate** from operator-only gateway control-plane APIs and raw admin RPC surfaces
 - Generic seams that improve OpenClaw broadly can live in core; product-specific SaaS UI and orchestration should live in a separate app or package where possible
 - Architectural choices that create a hard long-lived fork of core UI or core gateway behavior should be treated as explicit debt, not accidental fallout
 
@@ -97,9 +99,11 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 | **Data leakage between tenants** | Critical — trust-destroying | RLS enforced at DB level; defense-in-depth with application-layer checks; penetration testing per phase |
 | **Session store migration** | High — data loss potential | Dual-write phase; filesystem fallback; reversible migration batches |
 | **Secrets migration** | High — credential exposure | Encrypt-on-read during migration; never log plaintext; audit trail on every access |
+| **Auth-profile inheritance leakage** | High — cross-tenant credential bleed in shared workers | Migrate root and per-agent auth stores into tenant-owned secrets; disable main-agent inheritance for SaaS runtimes |
 | **Plugin compatibility** | Medium — ecosystem breakage | Versioned Plugin SDK; tenant context injected via existing `deps` pattern |
 | **Performance regression** | Medium — user-facing latency | Benchmark filesystem vs. DB latency before/after; connection pooling; read replicas |
 | **Self-hosted mode breakage** | Medium — existing user impact | SQLite fallback for single-tenant; feature flags gate SaaS-only paths |
+| **Operator control-plane leakage into tenant surface** | Critical — tenant gets operator powers | Separate tenant-safe SaaS APIs from Control UI / raw gateway admin RPCs; never reuse operator auth as tenant auth |
 | **Upstream drift from official repo** | High — long-term maintenance cost | Keep SaaS-specific UI and product workflows outside deep core forks; upstream only generic seams and contracts |
 
 ### 3.2 Non-Negotiable Constraints
@@ -110,6 +114,8 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 4. **No plaintext secrets at rest** — all tenant credentials encrypted with per-tenant keys
 5. **Audit trail** — every sensitive operation (secret access, config change, admin action) logged immutably
 6. **Official upstream pulls remain feasible** — avoid unnecessary permanent forks of the built-in UI or gateway internals
+7. **No request-path RLS bypass toggle** — tenant traffic must use tenant-scoped DB roles/transactions, not session flags that widen access
+8. **Tenant APIs stay separate from operator control plane** — raw config, exec approval, log tailing, update, and similar operator surfaces are not the tenant contract
 
 ---
 
@@ -134,19 +140,20 @@ Phase 0 — Foundation          [Weeks 1–4]
   ├── PostgreSQL + Drizzle setup
   ├── Tenant/user tables + RLS
   ├── Auth service (JWT + OIDC)
-  └── Database abstraction layer
+  └── Database abstraction layer + tenant-safe API boundary
 
 Phase 1 — Core Migration      [Weeks 5–10]
   ├── Config store → DB
   ├── Session store → DB (dual-write)
   ├── Secrets vault (encrypted)
-  └── Pairing/allowlist → DB
+  ├── Pairing/allowlist → DB
+  └── Auth-profile tenancy cutover + local SQLite state classification
 
 Phase 2 — Channel Isolation   [Weeks 11–14]
   ├── Per-tenant channel credentials
   ├── Per-tenant webhook routing
   ├── Media storage isolation
-  └── Memory/RAG tenant scoping
+  └── Memory/RAG tenant scoping + exit path for current local memory stores
 
 Phase 3 — Platform Layer      [Weeks 15–18]
   ├── Billing/subscription tables

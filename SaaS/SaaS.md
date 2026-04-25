@@ -25,8 +25,8 @@ This plan is organized into 5 documents, each self-contained and ordered for seq
 
 OpenClaw today is a **single-tenant, self-hosted** multi-channel AI gateway with:
 
-- **No database** — all persistence is JSON files on local filesystem
-- **No user accounts** — gateway uses shared bearer tokens
+- **No primary SaaS control-plane database** — most persistence is JSON/JSON5 on local filesystem, with additional local SQLite stores for task/runtime state
+- **No SaaS user accounts** — gateway uses shared operator auth, not tenant identities
 - **No multi-tenancy** — single config, single set of credentials, single session store
 - **Strong plugin architecture** — extensible channel/provider system worth preserving
 
@@ -58,6 +58,7 @@ A **multi-tenant SaaS platform** where:
 - **Self-hosted mode is preserved** as a feature-flag-gated single-tenant deployment
 - **Audit trail** captures every sensitive operation immutably
 - **Custom SaaS UI is separate** from the built-in Gateway Control UI
+- **Tenant-facing APIs are separate** from operator control-plane surfaces
 - **Upstream repo sync remains practical** throughout the transformation
 
 ---
@@ -78,7 +79,8 @@ A **multi-tenant SaaS platform** where:
 │  Layer 3: Database (RLS)                                     │
 │    └─ POLICY tenant_isolation USING                          │
 │       (tenant_id = current_setting('app.current_tenant_id')) │
-│    └─ FORCE ROW LEVEL SECURITY on every tenant table         │
+│    └─ Tenant app role always runs under RLS                  │
+│    └─ Internal service work uses a separate DB role/path     │
 │                                                             │
 │  Layer 4: Encryption                                         │
 │    └─ Per-tenant DEK (Data Encryption Key)                   │

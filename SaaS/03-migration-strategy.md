@@ -15,6 +15,7 @@
 5. **Self-hosted preservation** — filesystem path remains functional as fallback; feature flags gate SaaS paths
 6. **Data integrity** — checksums and reconciliation at every migration boundary
 7. **Upstream-friendly customization** — keep product-specific SaaS UI and orchestration outside deep core forks so pulling updates from the official repository remains practical
+8. **No request-path RLS bypass** — tenant traffic uses tenant-scoped DB roles and explicit transactions, never a session flag that widens access
 
 ---
 
@@ -35,6 +36,7 @@ interface SaasFeatureFlags {
   sessionStoreDual: boolean;          // dual-write sessions to DB + filesystem
   sessionStoreDb: boolean;            // read sessions from DB (cutover)
   secretsVault: boolean;              // use encrypted tenant_secrets
+  taskRegistryDb: boolean;            // platform task registry moved off local SQLite
 
   // Phase 2
   channelIsolation: boolean;          // per-tenant channel routing
@@ -56,6 +58,7 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
     sessionStoreDual: saasMode && env.OPENCLAW_SESSION_STORE_DUAL === '1',
     sessionStoreDb: saasMode && env.OPENCLAW_SESSION_STORE_DB === '1',
     secretsVault: saasMode && env.OPENCLAW_SECRETS_VAULT === '1',
+    taskRegistryDb: saasMode && env.OPENCLAW_TASK_REGISTRY_DB === '1',
     channelIsolation: saasMode && env.OPENCLAW_CHANNEL_ISOLATION === '1',
     mediaIsolation: saasMode && env.OPENCLAW_MEDIA_ISOLATION === '1',
     memoryIsolation: saasMode && env.OPENCLAW_MEMORY_ISOLATION === '1',
@@ -77,6 +80,7 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
 - Auth service operational (JWT + OIDC)
 - Self-hosted mode unchanged
 - Stable control-plane API boundary defined for the custom SaaS UI
+- Separate tenant and service DB roles/pools defined and verified
 
 ### 3.2 Implementation Steps
 
@@ -89,8 +93,9 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
    - Configure: max_connections=200, statement_timeout='30s'
 
 2. Create database roles:
-   - app_user: INSERT, SELECT, UPDATE, DELETE on app tables
-   - app_admin: app_user + GRANT on audit tables + schema migration
+   - app_tenant: tenant-facing request role, always subject to RLS
+   - app_service: internal jobs / provisioning / billing path, separate DSN and never used by tenant APIs
+   - app_admin: schema migration / operational maintenance only
    - app_readonly: SELECT only (for monitoring/analytics)
 
 3. Deploy PgBouncer:
@@ -130,6 +135,7 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
    - onboarding/provisioning
    - billing and subscription reads/writes
    - audit/event visibility
+   - session and run visibility that is explicitly tenant-safe
 
 2. Keep product-specific UI code in a separate app/package:
    - examples: apps/saas-admin/, ui-saas/, or equivalent
@@ -139,6 +145,31 @@ function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasF
    - auth/session APIs
    - tenant-aware config/session/secrets interfaces
    - audit/event contracts
+
+4. Explicitly keep operator-only surfaces out of the tenant API contract:
+   - config.set / config.apply on raw gateway config
+   - exec.approvals.*
+   - logs.tail
+   - update.run
+   - raw Gateway WS admin RPCs used by the built-in Control UI
+```
+
+#### Step 0.2.2 — Local State Inventory and Capability Cut
+
+```
+1. Inventory current local state that is outside JSON config/session files:
+   - tasks/runs.sqlite
+   - built-in memory/*.sqlite
+   - root and per-agent auth-profiles.json stores
+
+2. Classify each store as one of:
+   - tenant-owned and must migrate before exposure
+   - operator-only and must stay outside tenant APIs until modeled
+   - self-hosted-only and explicitly unsupported in shared SaaS
+
+3. Disable cross-agent credential inheritance in shared SaaS runtimes:
+   - no main-agent auth-profile fallback into shared worker/subagent dirs
+   - tenant-owned credentials must resolve from tenant-scoped secrets only
 ```
 
 #### Step 0.3 — Auth Service
@@ -209,6 +240,8 @@ Database tables remain but are unused.
 - Secrets encrypted and stored in DB
 - Pairing/allowlists migrated to DB
 - Audit logging active
+- Auth-profile stores migrated to tenant-owned secrets without cross-agent inheritance
+- Local SQLite task/runtime state explicitly migrated or kept operator-only by policy
 
 ### 4.2 Config Store Migration
 
@@ -452,7 +485,7 @@ Executed per tenant during Phase 1 activation.
 Step 1 — Inventory existing secrets:
   • Scan env vars for known API key patterns (OPENAI_API_KEY, etc.)
   • Scan config for secret-input references
-  • Scan auth-profiles.json for provider credentials
+  • Scan root and per-agent auth-profiles.json stores for provider credentials
   • Scan channel configs for bot tokens
 
 Step 2 — Create tenant DEK:
@@ -477,8 +510,18 @@ Step 5 — Verification:
 
 Step 6 — Cleanup (after 30-day observation):
   • Remove plaintext from env files (manual, guided)
-  • Archive old auth-profiles.json
+  • Archive old root/per-agent auth-profiles.json stores
   • Audit log: action = 'secret.migration_complete'
+```
+
+### 4.4.1 Auth Profile Tenancy Cutover
+
+```
+Rules:
+  • Import both root and per-agent auth-profile stores into tenant-owned secrets
+  • Replace shared runtime inheritance with explicit tenant-owned credential references
+  • Shared worker pools may not fall back to the main agent's auth store
+  • If a credential cannot be attributed to one tenant, keep it operator-only until resolved
 ```
 
 ### 4.5 Pairing / Allowlist Migration
@@ -516,6 +559,20 @@ async function migrateAllowlistsToDb(options: {
     }
   }
 }
+```
+
+### 4.6 Task Registry / Background Work State
+
+```
+Current:
+  • Durable task state lives in local SQLite (tasks/runs.sqlite)
+  • This state includes owner/session metadata and is not tenant-safe by default
+
+Plan:
+  • Do not expose local SQLite-backed task state directly in the SaaS tenant surface
+  • If tenant run history/status becomes a product feature, add PostgreSQL-backed
+    task_runs + task_delivery_state tables first
+  • Until then, background task state remains operator/internal platform state
 ```
 
 ### 4.6 Rollback Plan — Phase 1
@@ -680,7 +737,7 @@ class S3TenantMediaStore implements TenantMediaStore {
 ### 5.4 Memory/RAG Isolation (pgvector)
 
 ```
-Current:  LanceDB / QMD with single namespace
+Current:  built-in per-agent SQLite memory store by default; optional LanceDB / QMD paths
 Target:   pgvector with tenant-scoped RLS
 
 Migration:
@@ -717,7 +774,7 @@ Search query (tenant-isolated):
 
 - Billing/subscription management
 - Usage metering (messages, tokens, storage)
-- Admin dashboard for tenant management
+- Custom SaaS admin UI for tenant management
 - Self-service tenant onboarding flow
 
 ### 6.2 Billing Tables
@@ -762,8 +819,8 @@ ALTER TABLE subscriptions FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON subscriptions
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON subscriptions
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant platform work uses a separate internal DB role/path.
 ```
 
 ```sql
@@ -800,8 +857,8 @@ ALTER TABLE usage_records FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON usage_records
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON usage_records
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant platform work uses a separate internal DB role/path.
 ```
 
 ### 6.3 Tenant Onboarding Flow
@@ -831,7 +888,7 @@ New Tenant Registration:
 - [ ] Usage metering: daily aggregation matches message_events
 - [ ] Stripe webhook integration functional
 - [ ] Onboarding flow: 0 → operational in < 5 minutes
-- [ ] Admin dashboard: list tenants, view usage, manage subscriptions
+- [ ] Custom SaaS admin UI: list tenants, view usage, manage subscriptions
 
 ---
 

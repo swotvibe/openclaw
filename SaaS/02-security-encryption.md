@@ -12,10 +12,17 @@
 
 | Surface | Current Auth | SaaS Gap |
 |---------|-------------|----------|
-| **Gateway HTTP** | Bearer token or password (`OPENCLAW_GATEWAY_TOKEN`) | No user identity; shared token for all users |
-| **Gateway WS** | Same token + device identity (Control UI) | No tenant scoping; device auth is optional |
+| **Gateway HTTP** | Bearer token or password (`OPENCLAW_GATEWAY_TOKEN`) for operator/control-plane access | No user identity; shared operator secret, not tenant auth |
+| **Gateway WS** | Same token + device identity (Control UI) | No tenant scoping; operator access surface is stronger than a tenant surface |
 | **Tailscale** | Tailnet identity (login+profile) | Single tailnet; no multi-tenant mapping |
 | **Trusted proxy** | IP-based trust | Not applicable to SaaS |
+
+### 1.1.1 Identity Boundary Split
+
+- **Tenant auth**: SaaS JWT/OIDC used by the custom SaaS UI and tenant-safe APIs only
+- **Operator auth**: existing gateway token/password, Tailscale, trusted-proxy, and device pairing remain operator/self-hosted control-plane mechanisms
+- **Service auth**: internal service-to-service auth for platform jobs, billing, and provisioning
+- **Hard rule**: operator credentials never become tenant credentials, and tenant JWTs never authorize operator-only endpoints such as raw config mutation, exec approvals, log tailing, or update/restart surfaces
 
 ### 1.2 Target Authentication Stack
 
@@ -26,7 +33,7 @@
                            │ HTTPS + JWT Bearer
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     API Gateway / LB                     │
+│               Tenant API Gateway / SaaS LB               │
 │              (TLS termination, rate limiting)             │
 └──────────────────────────┬──────────────────────────────┘
                            │
@@ -46,6 +53,13 @@
 │              PostgreSQL (RLS enforced)                    │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### 1.2.1 Request-Scoped Tenant Context Rules
+
+- Every tenant-facing unit of work opens an explicit DB transaction
+- `SET LOCAL app.current_tenant_id` is executed inside that transaction before tenant queries run
+- All tenant queries in that unit of work use the same transaction handle
+- Cross-tenant platform jobs use a **separate service DB role / connection path**, not a request-path `SET app.bypass_rls` flag
 
 ### 1.3 JWT Token Structure
 
@@ -197,7 +211,7 @@ function requirePermission(...required: Permission[]) {
 |--------|------------|
 | **Database compromise** (attacker gets DB dump) | All secrets encrypted at rest with per-tenant DEKs; DEKs encrypted with master KEK in KMS |
 | **Application server compromise** | KEK never leaves KMS; DEKs cached in memory only, short TTL; audit logs detect anomalous access |
-| **Insider threat (rogue operator)** | RLS prevents cross-tenant queries even for DB superuser (with FORCE RLS); audit trail on all secret access |
+| **Insider threat (rogue operator)** | RLS protects the tenant app role; highly privileged DB roles still require strict separation, limited use, and audit logging |
 | **Network interception** | TLS everywhere; no plaintext secrets in transit |
 | **Key compromise** | Per-tenant key rotation; re-encrypt affected secrets without downtime |
 | **Backup exposure** | Backups contain encrypted data; useless without KEK |
@@ -274,8 +288,8 @@ ALTER TABLE tenant_deks FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tenant_deks
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON tenant_deks
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic session-flag bypass policy.
+-- Cross-tenant platform jobs use a separate internal DB role/path.
 ```
 
 ### 3.4 Encryption / Decryption Implementation
@@ -497,9 +511,9 @@ Hard delete after retention period (90 days default):
 | `ANTHROPIC_API_KEY` env var | `anthropic_api_key` | Same |
 | `TELEGRAM_BOT_TOKEN` env var | `telegram_bot_token` | Stored in channel_accounts.secret_ids |
 | `DISCORD_BOT_TOKEN` env var | `discord_bot_token` | Same |
-| `gateway.auth.token` config | `gateway_auth_token` | Per-tenant gateway credential |
+| `gateway.auth.token` config | Not migrated into `tenant_secrets` | Operator/control-plane secret only; do not reuse as tenant auth |
 | `oauth.json` file | `oauth_access_token`, `oauth_refresh_token` | Split into separate secrets |
-| `auth-profiles.json` entries | `auth_profile_{provider}_key` | Per-profile secret |
+| Root + per-agent `auth-profiles.json` entries | `auth_profile_{provider}_key` | Per-profile secret; disable main-agent inheritance before shared SaaS runtimes |
 | Config `secrets.providers[].exec` | Not migrated — SaaS replaces with vault | Exec providers are self-hosted only |
 
 ---
