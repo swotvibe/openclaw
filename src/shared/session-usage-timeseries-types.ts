@@ -6,6 +6,7 @@ export type SessionUsageTimePoint = {
   cacheWrite: number;
   totalTokens: number;
   cost: number;
+  costEstimated?: boolean;
   cumulativeTokens: number;
   cumulativeCost: number;
 };

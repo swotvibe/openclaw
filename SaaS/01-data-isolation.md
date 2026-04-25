@@ -873,7 +873,7 @@ function getSessionsByTenant(tenantId: string) {
   return db
     .select()
     .from(sessions)
-    .where(eq(sessions.tenant_id, tenantId)) // Application-level filter
+    .where(eq(sessions.tenant_id, tenantId))  // Application-level filter
     .orderBy(desc(sessions.last_activity_at));
   // RLS also enforces tenant_id match — double barrier
 }
@@ -900,16 +900,16 @@ SELECT count(*) FROM tenant_secrets;
 
 ## 8. Data Flow: Filesystem to Database Mapping
 
-| Current Filesystem Path                       | Database Table                           | Migration Strategy                                          |
-| --------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------- |
-| `~/.openclaw/openclaw.json`                   | `tenant_configs.config_data`             | Parse JSON5 → validate → store as JSONB                     |
-| `~/.openclaw/sessions/*.json`                 | `sessions`                               | Dual-write Phase 1; batch migrate existing                  |
-| `~/.openclaw/credentials/{ch}-allowFrom.json` | `channel_allowlists`                     | Import entries; create channel_accounts first               |
-| `~/.openclaw/credentials/{ch}-pairing.json`   | `pairing_requests`                       | Import pending; expired entries discarded                   |
-| `~/.openclaw/credentials/oauth.json`          | `tenant_secrets` (encrypted)             | Encrypt → store; destroy plaintext                          |
-| `~/.openclaw/auth-profiles.json`              | `tenant_secrets` + `tenant_configs.auth` | Split credentials from config                               |
-| Env vars (`OPENAI_API_KEY`, etc.)             | `tenant_secrets`                         | Encrypt on import; env vars remain fallback for self-hosted |
-| LanceDB vector files                          | `memory_embeddings`                      | Re-embed or bulk-insert existing vectors                    |
+| Current Filesystem Path | Database Table | Migration Strategy |
+|------------------------|----------------|-------------------|
+| `~/.openclaw/openclaw.json` | `tenant_configs.config_data` | Parse JSON5 → validate → store as JSONB |
+| `~/.openclaw/sessions/*.json` | `sessions` | Dual-write Phase 1; batch migrate existing |
+| `~/.openclaw/credentials/{ch}-allowFrom.json` | `channel_allowlists` | Import entries; create channel_accounts first |
+| `~/.openclaw/credentials/{ch}-pairing.json` | `pairing_requests` | Import pending; expired entries discarded |
+| `~/.openclaw/credentials/oauth.json` | `tenant_secrets` (encrypted) | Encrypt → store; destroy plaintext |
+| `~/.openclaw/auth-profiles.json` | `tenant_secrets` + `tenant_configs.auth` | Split credentials from config |
+| Env vars (`OPENAI_API_KEY`, etc.) | `tenant_secrets` | Encrypt on import; env vars remain fallback for self-hosted |
+| LanceDB vector files | `memory_embeddings` | Re-embed or bulk-insert existing vectors |
 
 ---
 
@@ -973,15 +973,15 @@ RLS compatibility note:
 
 ## 11. Design Decisions Log
 
-| #   | Decision                                                      | Reason                                                                             | Trade-off                                                                              |
-| --- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 1   | TEXT + CHECK over ENUM for status fields                      | ENUM requires non-transactional `ALTER TYPE` to extend                             | Slightly less type safety at DB level; CHECK compensates                               |
-| 2   | JSONB for config_data instead of normalized columns           | Preserves 1:1 compatibility with OpenClawConfig type; schema evolves independently | Deep queries require JSONB operators; GIN index mitigates                              |
-| 3   | JSONB for session messages instead of separate messages table | Matches current SessionEntry.messages array; avoids N+1 on conversation load       | Large sessions may hit TOAST; content pruning needed at application layer              |
-| 4   | UUID PKs everywhere                                           | No sequential ID enumeration; required for public-facing APIs                      | 16 bytes vs 8 bytes per key; negligible at this scale                                  |
-| 5   | Partitioned audit_logs from day one                           | Append-only unbounded table; retroactive partitioning requires downtime            | Partition key (created_at) must be in PK; cross-partition queries include created_at   |
-| 6   | pgvector over separate LanceDB                                | Eliminates operational dependency; tenant isolation via RLS                        | pgvector IVFFlat recall slightly lower than HNSW at extreme scale; upgrade path exists |
-| 7   | Envelope encryption for tenant_secrets                        | Per-tenant key rotation without re-encrypting all secrets globally                 | Application must manage DEK lifecycle; adds ~2ms per decrypt                           |
-| 8   | channel_allowlists as separate table vs JSONB array           | Enables per-entry audit, source tracking, and partial updates                      | More JOINs for allowlist checks; cached at application layer                           |
-| 9   | Separate tenant_configs table vs config columns on tenants    | Config versioning, audit trail, and potential rollback to previous config          | Extra JOIN; mitigated by unique active index + caching                                 |
-| 10  | fillfactor = 70 on sessions table                             | High UPDATE rate benefits from HOT updates; reduces bloat by 30-40%                | 30% more disk space per page; acceptable trade-off for write performance               |
+| # | Decision | Reason | Trade-off |
+|---|----------|--------|-----------|
+| 1 | TEXT + CHECK over ENUM for status fields | ENUM requires non-transactional `ALTER TYPE` to extend | Slightly less type safety at DB level; CHECK compensates |
+| 2 | JSONB for config_data instead of normalized columns | Preserves 1:1 compatibility with OpenClawConfig type; schema evolves independently | Deep queries require JSONB operators; GIN index mitigates |
+| 3 | JSONB for session messages instead of separate messages table | Matches current SessionEntry.messages array; avoids N+1 on conversation load | Large sessions may hit TOAST; content pruning needed at application layer |
+| 4 | UUID PKs everywhere | No sequential ID enumeration; required for public-facing APIs | 16 bytes vs 8 bytes per key; negligible at this scale |
+| 5 | Partitioned audit_logs from day one | Append-only unbounded table; retroactive partitioning requires downtime | Partition key (created_at) must be in PK; cross-partition queries include created_at |
+| 6 | pgvector over separate LanceDB | Eliminates operational dependency; tenant isolation via RLS | pgvector IVFFlat recall slightly lower than HNSW at extreme scale; upgrade path exists |
+| 7 | Envelope encryption for tenant_secrets | Per-tenant key rotation without re-encrypting all secrets globally | Application must manage DEK lifecycle; adds ~2ms per decrypt |
+| 8 | channel_allowlists as separate table vs JSONB array | Enables per-entry audit, source tracking, and partial updates | More JOINs for allowlist checks; cached at application layer |
+| 9 | Separate tenant_configs table vs config columns on tenants | Config versioning, audit trail, and potential rollback to previous config | Extra JOIN; mitigated by unique active index + caching |
+| 10 | fillfactor = 70 on sessions table | High UPDATE rate benefits from HOT updates; reduces bloat by 30-40% | 30% more disk space per page; acceptable trade-off for write performance |

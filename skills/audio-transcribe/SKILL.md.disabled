@@ -1,0 +1,19 @@
+---
+name: audio-transcribe
+description: Transcribe audio files (ogg, mp3, wav) to text using local OpenAI Whisper. Use this skill when the user sends a voice note or audio file that needs to be understood.
+---
+
+# Audio Transcribe
+
+Uses a local installation of OpenAI Whisper to transcribe audio files.
+
+## Usage
+
+```bash
+~/opt/whisper/bin/python ~/opt/openclaw/skills/audio-transcribe/transcribe.py <path_to_audio_file>
+```
+
+## Setup
+
+Requires a python venv at `~/opt/whisper` with `openai-whisper` and `ffmpeg-python` installed.
+System must have `ffmpeg` installed.

@@ -37,6 +37,7 @@ import { extractGeminiResponse } from "./output-extract.js";
 import { getMediaUnderstandingProvider, normalizeMediaProviderId } from "./provider-registry.js";
 import { resolveMaxBytes, resolveMaxChars, resolvePrompt, resolveTimeoutMs } from "./resolve.js";
 import type {
+  MediaAttachment,
   MediaUnderstandingCapability,
   MediaUnderstandingDecision,
   MediaUnderstandingModelDecision,
@@ -507,6 +508,7 @@ export async function runProviderEntry(params: {
   cfg: OpenClawConfig;
   ctx: MsgContext;
   attachmentIndex: number;
+  attachment: MediaAttachment;
   cache: MediaAttachmentCache;
   agentDir?: string;
   providerRegistry: ProviderRegistry;
@@ -612,6 +614,7 @@ export async function runProviderEntry(params: {
           buffer: media.buffer,
           fileName: media.fileName,
           mime: media.mime,
+          sourceUrl: params.attachment.path ? undefined : params.attachment.url,
           apiKey,
           baseUrl,
           headers,

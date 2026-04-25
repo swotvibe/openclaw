@@ -10,12 +10,12 @@
 
 ### 1.1 Current State
 
-| Surface           | Current Auth                                        | SaaS Gap                                     |
-| ----------------- | --------------------------------------------------- | -------------------------------------------- |
-| **Gateway HTTP**  | Bearer token or password (`OPENCLAW_GATEWAY_TOKEN`) | No user identity; shared token for all users |
-| **Gateway WS**    | Same token + device identity (Control UI)           | No tenant scoping; device auth is optional   |
-| **Tailscale**     | Tailnet identity (login+profile)                    | Single tailnet; no multi-tenant mapping      |
-| **Trusted proxy** | IP-based trust                                      | Not applicable to SaaS                       |
+| Surface | Current Auth | SaaS Gap |
+|---------|-------------|----------|
+| **Gateway HTTP** | Bearer token or password (`OPENCLAW_GATEWAY_TOKEN`) | No user identity; shared token for all users |
+| **Gateway WS** | Same token + device identity (Control UI) | No tenant scoping; device auth is optional |
+| **Tailscale** | Tailnet identity (login+profile) | Single tailnet; no multi-tenant mapping |
+| **Trusted proxy** | IP-based trust | Not applicable to SaaS |
 
 ### 1.2 Target Authentication Stack
 
@@ -71,16 +71,16 @@
 
 ### 1.4 Auth Endpoints
 
-| Endpoint                       | Method        | Purpose                                                   |
-| ------------------------------ | ------------- | --------------------------------------------------------- |
-| `POST /auth/register`          | Public        | Create user + tenant (or join existing tenant via invite) |
-| `POST /auth/login`             | Public        | Email/password login → JWT                                |
-| `POST /auth/login/oidc`        | Public        | OIDC/OAuth redirect initiation (Google, GitHub, Okta)     |
-| `GET /auth/callback/:provider` | Public        | OIDC callback → JWT                                       |
-| `POST /auth/refresh`           | Authenticated | Refresh token → new JWT                                   |
-| `POST /auth/logout`            | Authenticated | Revoke refresh token                                      |
-| `POST /auth/switch-tenant`     | Authenticated | Issue new JWT for a different tenant the user belongs to  |
-| `POST /auth/invite`            | Admin         | Generate tenant invitation link                           |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `POST /auth/register` | Public | Create user + tenant (or join existing tenant via invite) |
+| `POST /auth/login` | Public | Email/password login → JWT |
+| `POST /auth/login/oidc` | Public | OIDC/OAuth redirect initiation (Google, GitHub, Okta) |
+| `GET /auth/callback/:provider` | Public | OIDC callback → JWT |
+| `POST /auth/refresh` | Authenticated | Refresh token → new JWT |
+| `POST /auth/logout` | Authenticated | Revoke refresh token |
+| `POST /auth/switch-tenant` | Authenticated | Issue new JWT for a different tenant the user belongs to |
+| `POST /auth/invite` | Admin | Generate tenant invitation link |
 
 ### 1.5 OIDC / SSO Integration
 
@@ -88,13 +88,13 @@
 // Supported OIDC providers (extensible via config)
 const OIDC_PROVIDERS = {
   google: {
-    discoveryUrl: "https://accounts.google.com/.well-known/openid-configuration",
-    scopes: ["openid", "email", "profile"],
+    discoveryUrl: 'https://accounts.google.com/.well-known/openid-configuration',
+    scopes: ['openid', 'email', 'profile'],
   },
   github: {
-    authUrl: "https://github.com/login/oauth/authorize",
-    tokenUrl: "https://github.com/login/oauth/access_token",
-    scopes: ["read:user", "user:email"],
+    authUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl: 'https://github.com/login/oauth/access_token',
+    scopes: ['read:user', 'user:email'],
   },
   // Enterprise SSO: tenant-specific OIDC provider configured in tenant_configs
   custom: {
@@ -109,12 +109,12 @@ For self-hosted single-tenant deployments, auth falls back to current behavior:
 
 ```typescript
 // Resolved at startup based on OPENCLAW_SAAS_MODE env var or config
-type AuthMode = "saas" | "self-hosted";
+type AuthMode = 'saas' | 'self-hosted';
 
 function resolveAuthMode(env: NodeJS.ProcessEnv): AuthMode {
-  if (env.OPENCLAW_SAAS_MODE === "1") return "saas";
+  if (env.OPENCLAW_SAAS_MODE === '1') return 'saas';
   // Legacy: token/password auth → single implicit tenant
-  return "self-hosted";
+  return 'self-hosted';
 }
 
 // Self-hosted: auto-create a default tenant + admin user on first boot
@@ -127,113 +127,58 @@ function resolveAuthMode(env: NodeJS.ProcessEnv): AuthMode {
 
 ### 2.1 Role Hierarchy
 
-| Role       | Permissions                                                                 | Typical Use         |
-| ---------- | --------------------------------------------------------------------------- | ------------------- |
-| **owner**  | Full tenant control; billing; delete tenant; transfer ownership             | Tenant creator      |
-| **admin**  | Manage channels, agents, config, secrets, members; cannot delete tenant     | Team leads          |
-| **member** | Use agents, view sessions, manage own pairing; cannot modify config/secrets | Regular users       |
-| **viewer** | Read-only access to sessions and analytics; cannot interact with agents     | Auditors, observers |
+| Role | Permissions | Typical Use |
+|------|------------|-------------|
+| **owner** | Full tenant control; billing; delete tenant; transfer ownership | Tenant creator |
+| **admin** | Manage channels, agents, config, secrets, members; cannot delete tenant | Team leads |
+| **member** | Use agents, view sessions, manage own pairing; cannot modify config/secrets | Regular users |
+| **viewer** | Read-only access to sessions and analytics; cannot interact with agents | Auditors, observers |
 
 ### 2.2 Permission Matrix
 
-| Resource                 | owner | admin | member   | viewer |
-| ------------------------ | ----- | ----- | -------- | ------ |
-| Tenant settings          | RW    | RW    | R        | R      |
-| Config (tenant_configs)  | RW    | RW    | —        | —      |
-| Secrets (tenant_secrets) | RW    | RW    | —        | —      |
-| Agents                   | RW    | RW    | R        | R      |
-| Channel accounts         | RW    | RW    | R        | R      |
-| Channel allowlists       | RW    | RW    | RW (own) | —      |
-| Sessions                 | RW    | RW    | RW (own) | R      |
-| Audit logs               | R     | R     | —        | R      |
-| Members                  | RW    | RW    | R        | R      |
-| Billing                  | RW    | R     | —        | —      |
+| Resource | owner | admin | member | viewer |
+|----------|-------|-------|--------|--------|
+| Tenant settings | RW | RW | R | R |
+| Config (tenant_configs) | RW | RW | — | — |
+| Secrets (tenant_secrets) | RW | RW | — | — |
+| Agents | RW | RW | R | R |
+| Channel accounts | RW | RW | R | R |
+| Channel allowlists | RW | RW | RW (own) | — |
+| Sessions | RW | RW | RW (own) | R |
+| Audit logs | R | R | — | R |
+| Members | RW | RW | R | R |
+| Billing | RW | R | — | — |
 
 ### 2.3 Authorization Middleware
 
 ```typescript
-type Permission =
-  | "tenant:read"
-  | "tenant:write"
-  | "config:read"
-  | "config:write"
-  | "secrets:read"
-  | "secrets:write"
-  | "agents:read"
-  | "agents:write"
-  | "channels:read"
-  | "channels:write"
-  | "sessions:read"
-  | "sessions:write"
-  | "audit:read"
-  | "members:read"
-  | "members:write"
-  | "billing:read"
-  | "billing:write";
+type Permission = 'tenant:read' | 'tenant:write' | 'config:read' | 'config:write'
+  | 'secrets:read' | 'secrets:write' | 'agents:read' | 'agents:write'
+  | 'channels:read' | 'channels:write' | 'sessions:read' | 'sessions:write'
+  | 'audit:read' | 'members:read' | 'members:write' | 'billing:read' | 'billing:write';
 
 const ROLE_PERMISSIONS: Record<string, Permission[]> = {
-  owner: [
-    "tenant:read",
-    "tenant:write",
-    "config:read",
-    "config:write",
-    "secrets:read",
-    "secrets:write",
-    "agents:read",
-    "agents:write",
-    "channels:read",
-    "channels:write",
-    "sessions:read",
-    "sessions:write",
-    "audit:read",
-    "members:read",
-    "members:write",
-    "billing:read",
-    "billing:write",
-  ],
-  admin: [
-    "tenant:read",
-    "tenant:write",
-    "config:read",
-    "config:write",
-    "secrets:read",
-    "secrets:write",
-    "agents:read",
-    "agents:write",
-    "channels:read",
-    "channels:write",
-    "sessions:read",
-    "sessions:write",
-    "audit:read",
-    "members:read",
-    "members:write",
-    "billing:read",
-  ],
-  member: [
-    "tenant:read",
-    "agents:read",
-    "channels:read",
-    "sessions:read",
-    "sessions:write",
-    "members:read",
-  ],
-  viewer: [
-    "tenant:read",
-    "agents:read",
-    "channels:read",
-    "sessions:read",
-    "audit:read",
-    "members:read",
-  ],
+  owner:  ['tenant:read', 'tenant:write', 'config:read', 'config:write',
+           'secrets:read', 'secrets:write', 'agents:read', 'agents:write',
+           'channels:read', 'channels:write', 'sessions:read', 'sessions:write',
+           'audit:read', 'members:read', 'members:write', 'billing:read', 'billing:write'],
+  admin:  ['tenant:read', 'tenant:write', 'config:read', 'config:write',
+           'secrets:read', 'secrets:write', 'agents:read', 'agents:write',
+           'channels:read', 'channels:write', 'sessions:read', 'sessions:write',
+           'audit:read', 'members:read', 'members:write', 'billing:read'],
+  member: ['tenant:read', 'agents:read', 'channels:read',
+           'sessions:read', 'sessions:write', 'members:read'],
+  viewer: ['tenant:read', 'agents:read', 'channels:read',
+           'sessions:read', 'audit:read', 'members:read'],
 };
 
 function requirePermission(...required: Permission[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const userPerms = ROLE_PERMISSIONS[req.auth.role] ?? [];
-    const missing = required.filter((p) => !userPerms.includes(p));
+    const missing = required.filter(p => !userPerms.includes(p));
     if (missing.length > 0) {
       return res.status(403).json({
-        error: "forbidden",
+        error: 'forbidden',
         missing_permissions: missing,
       });
     }
@@ -248,14 +193,14 @@ function requirePermission(...required: Permission[]) {
 
 ### 3.1 Threat Model
 
-| Threat                                          | Mitigation                                                                                                 |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Database compromise** (attacker gets DB dump) | All secrets encrypted at rest with per-tenant DEKs; DEKs encrypted with master KEK in KMS                  |
-| **Application server compromise**               | KEK never leaves KMS; DEKs cached in memory only, short TTL; audit logs detect anomalous access            |
-| **Insider threat (rogue operator)**             | RLS prevents cross-tenant queries even for DB superuser (with FORCE RLS); audit trail on all secret access |
-| **Network interception**                        | TLS everywhere; no plaintext secrets in transit                                                            |
-| **Key compromise**                              | Per-tenant key rotation; re-encrypt affected secrets without downtime                                      |
-| **Backup exposure**                             | Backups contain encrypted data; useless without KEK                                                        |
+| Threat | Mitigation |
+|--------|------------|
+| **Database compromise** (attacker gets DB dump) | All secrets encrypted at rest with per-tenant DEKs; DEKs encrypted with master KEK in KMS |
+| **Application server compromise** | KEK never leaves KMS; DEKs cached in memory only, short TTL; audit logs detect anomalous access |
+| **Insider threat (rogue operator)** | RLS prevents cross-tenant queries even for DB superuser (with FORCE RLS); audit trail on all secret access |
+| **Network interception** | TLS everywhere; no plaintext secrets in transit |
+| **Key compromise** | Per-tenant key rotation; re-encrypt affected secrets without downtime |
+| **Backup exposure** | Backups contain encrypted data; useless without KEK |
 
 ### 3.2 Envelope Encryption Design
 
@@ -336,11 +281,11 @@ CREATE POLICY service_bypass ON tenant_deks
 ### 3.4 Encryption / Decryption Implementation
 
 ```typescript
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
-const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12; // 96-bit IV for GCM
-const TAG_LENGTH = 16; // 128-bit auth tag
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;     // 96-bit IV for GCM
+const TAG_LENGTH = 16;    // 128-bit auth tag
 
 interface EncryptedPayload {
   ciphertext: Buffer;
@@ -356,7 +301,10 @@ interface EncryptedPayload {
 function encryptSecret(plaintext: string, dek: Buffer, dekVersion: number): EncryptedPayload {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, dek, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()]);
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, 'utf-8'),
+    cipher.final(),
+  ]);
   const authTag = cipher.getAuthTag();
 
   return { ciphertext, iv, authTag, dekVersion };
@@ -368,8 +316,11 @@ function encryptSecret(plaintext: string, dek: Buffer, dekVersion: number): Encr
 function decryptSecret(payload: EncryptedPayload, dek: Buffer): string {
   const decipher = createDecipheriv(ALGORITHM, dek, payload.iv);
   decipher.setAuthTag(payload.authTag);
-  const plaintext = Buffer.concat([decipher.update(payload.ciphertext), decipher.final()]);
-  return plaintext.toString("utf-8");
+  const plaintext = Buffer.concat([
+    decipher.update(payload.ciphertext),
+    decipher.final(),
+  ]);
+  return plaintext.toString('utf-8');
 }
 
 /**
@@ -470,12 +421,12 @@ Estimated time: < 1 second for typical tenant (50 secrets).
 
 ### 3.7 Master KEK Management
 
-| KMS Provider            | Configuration                                                       | Self-Hosted Fallback                                                                      |
-| ----------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **AWS KMS**             | `OPENCLAW_KMS_PROVIDER=aws`, `OPENCLAW_KMS_KEY_ARN=arn:aws:kms:...` | —                                                                                         |
-| **GCP KMS**             | `OPENCLAW_KMS_PROVIDER=gcp`, `OPENCLAW_KMS_KEY_NAME=projects/...`   | —                                                                                         |
-| **HashiCorp Vault**     | `OPENCLAW_KMS_PROVIDER=vault`, `OPENCLAW_VAULT_ADDR=...`            | —                                                                                         |
-| **Local (self-hosted)** | `OPENCLAW_KMS_PROVIDER=local`                                       | Master key derived from `OPENCLAW_MASTER_KEY` env var via HKDF; stored only in env/memory |
+| KMS Provider | Configuration | Self-Hosted Fallback |
+|-------------|---------------|---------------------|
+| **AWS KMS** | `OPENCLAW_KMS_PROVIDER=aws`, `OPENCLAW_KMS_KEY_ARN=arn:aws:kms:...` | — |
+| **GCP KMS** | `OPENCLAW_KMS_PROVIDER=gcp`, `OPENCLAW_KMS_KEY_NAME=projects/...` | — |
+| **HashiCorp Vault** | `OPENCLAW_KMS_PROVIDER=vault`, `OPENCLAW_VAULT_ADDR=...` | — |
+| **Local (self-hosted)** | `OPENCLAW_KMS_PROVIDER=local` | Master key derived from `OPENCLAW_MASTER_KEY` env var via HKDF; stored only in env/memory |
 
 ```typescript
 interface KmsProvider {
@@ -486,18 +437,13 @@ interface KmsProvider {
 
 // Factory resolves provider from config/env
 function createKmsProvider(env: NodeJS.ProcessEnv): KmsProvider {
-  const provider = env.OPENCLAW_KMS_PROVIDER ?? "local";
+  const provider = env.OPENCLAW_KMS_PROVIDER ?? 'local';
   switch (provider) {
-    case "aws":
-      return new AwsKmsProvider(env);
-    case "gcp":
-      return new GcpKmsProvider(env);
-    case "vault":
-      return new VaultKmsProvider(env);
-    case "local":
-      return new LocalKmsProvider(env);
-    default:
-      throw new Error(`Unknown KMS provider: ${provider}`);
+    case 'aws': return new AwsKmsProvider(env);
+    case 'gcp': return new GcpKmsProvider(env);
+    case 'vault': return new VaultKmsProvider(env);
+    case 'local': return new LocalKmsProvider(env);
+    default: throw new Error(`Unknown KMS provider: ${provider}`);
   }
 }
 ```
@@ -545,16 +491,16 @@ Hard delete after retention period (90 days default):
 
 ### 4.4 Mapping Current Secrets to Tenant Secrets
 
-| Current Secret Source             | Tenant Secret Key                           | Migration Notes                       |
-| --------------------------------- | ------------------------------------------- | ------------------------------------- |
-| `OPENAI_API_KEY` env var          | `openai_api_key`                            | Read from env → encrypt → store       |
-| `ANTHROPIC_API_KEY` env var       | `anthropic_api_key`                         | Same                                  |
-| `TELEGRAM_BOT_TOKEN` env var      | `telegram_bot_token`                        | Stored in channel_accounts.secret_ids |
-| `DISCORD_BOT_TOKEN` env var       | `discord_bot_token`                         | Same                                  |
-| `gateway.auth.token` config       | `gateway_auth_token`                        | Per-tenant gateway credential         |
-| `oauth.json` file                 | `oauth_access_token`, `oauth_refresh_token` | Split into separate secrets           |
-| `auth-profiles.json` entries      | `auth_profile_{provider}_key`               | Per-profile secret                    |
-| Config `secrets.providers[].exec` | Not migrated — SaaS replaces with vault     | Exec providers are self-hosted only   |
+| Current Secret Source | Tenant Secret Key | Migration Notes |
+|----------------------|-------------------|-----------------|
+| `OPENAI_API_KEY` env var | `openai_api_key` | Read from env → encrypt → store |
+| `ANTHROPIC_API_KEY` env var | `anthropic_api_key` | Same |
+| `TELEGRAM_BOT_TOKEN` env var | `telegram_bot_token` | Stored in channel_accounts.secret_ids |
+| `DISCORD_BOT_TOKEN` env var | `discord_bot_token` | Same |
+| `gateway.auth.token` config | `gateway_auth_token` | Per-tenant gateway credential |
+| `oauth.json` file | `oauth_access_token`, `oauth_refresh_token` | Split into separate secrets |
+| `auth-profiles.json` entries | `auth_profile_{provider}_key` | Per-profile secret |
+| Config `secrets.providers[].exec` | Not migrated — SaaS replaces with vault | Exec providers are self-hosted only |
 
 ---
 
@@ -562,14 +508,14 @@ Hard delete after retention period (90 days default):
 
 ### 5.1 TLS Configuration
 
-| Component               | TLS Requirement                           | Certificate                |
-| ----------------------- | ----------------------------------------- | -------------------------- |
-| **API Gateway**         | TLS 1.3 required, TLS 1.2 minimum         | Let's Encrypt / ACM        |
-| **Gateway ↔ DB**        | TLS required (`sslmode=verify-full`)      | Internal CA                |
-| **Gateway ↔ KMS**       | Provider-managed TLS                      | Provider-managed           |
-| **Gateway ↔ PgBouncer** | TLS required                              | Internal CA                |
-| **Inter-service**       | mTLS where possible                       | Internal CA                |
-| **Webhook callbacks**   | TLS required; HMAC signature verification | Per-channel signing secret |
+| Component | TLS Requirement | Certificate |
+|-----------|----------------|-------------|
+| **API Gateway** | TLS 1.3 required, TLS 1.2 minimum | Let's Encrypt / ACM |
+| **Gateway ↔ DB** | TLS required (`sslmode=verify-full`) | Internal CA |
+| **Gateway ↔ KMS** | Provider-managed TLS | Provider-managed |
+| **Gateway ↔ PgBouncer** | TLS required | Internal CA |
+| **Inter-service** | mTLS where possible | Internal CA |
+| **Webhook callbacks** | TLS required; HMAC signature verification | Per-channel signing secret |
 
 ### 5.2 Webhook Security
 
@@ -594,14 +540,14 @@ Inbound webhooks from messaging platforms need tenant routing + verification:
 
 ### 6.1 Rate Limit Tiers
 
-| Surface                | Rate Limit                      | Scope       |
-| ---------------------- | ------------------------------- | ----------- |
-| **Auth endpoints**     | 10 req/min per IP               | Global      |
-| **API endpoints**      | 100 req/min per user            | Per-user    |
-| **Message processing** | Based on plan tier              | Per-tenant  |
-| **Secret access**      | 60 req/min per tenant           | Per-tenant  |
-| **Webhook inbound**    | 500 req/min per channel_account | Per-channel |
-| **Config writes**      | 10 req/min per tenant           | Per-tenant  |
+| Surface | Rate Limit | Scope |
+|---------|-----------|-------|
+| **Auth endpoints** | 10 req/min per IP | Global |
+| **API endpoints** | 100 req/min per user | Per-user |
+| **Message processing** | Based on plan tier | Per-tenant |
+| **Secret access** | 60 req/min per tenant | Per-tenant |
+| **Webhook inbound** | 500 req/min per channel_account | Per-channel |
+| **Config writes** | 10 req/min per tenant | Per-tenant |
 
 ### 6.2 Rate Limit Implementation
 
@@ -613,14 +559,14 @@ Inbound webhooks from messaging platforms need tenant routing + verification:
 interface RateLimitConfig {
   maxRequests: number;
   windowMs: number;
-  scope: "global" | "tenant" | "user" | "ip" | "channel";
+  scope: 'global' | 'tenant' | 'user' | 'ip' | 'channel';
 }
 
 const PLAN_RATE_LIMITS: Record<string, { messagesPerDay: number; agentCalls: number }> = {
-  free: { messagesPerDay: 100, agentCalls: 50 },
-  starter: { messagesPerDay: 5000, agentCalls: 2500 },
-  pro: { messagesPerDay: 50000, agentCalls: 25000 },
-  enterprise: { messagesPerDay: -1, agentCalls: -1 }, // unlimited (soft limit via config)
+  free:       { messagesPerDay: 100,   agentCalls: 50 },
+  starter:    { messagesPerDay: 5000,  agentCalls: 2500 },
+  pro:        { messagesPerDay: 50000, agentCalls: 25000 },
+  enterprise: { messagesPerDay: -1,    agentCalls: -1 }, // unlimited (soft limit via config)
 };
 ```
 
@@ -632,26 +578,26 @@ const PLAN_RATE_LIMITS: Record<string, { messagesPerDay: number; agentCalls: num
 
 Every sensitive operation produces an immutable audit log entry:
 
-| Action               | Resource Type     | Trigger                                |
-| -------------------- | ----------------- | -------------------------------------- |
-| `secret.read`        | `tenant_secret`   | Any decryption of a secret             |
-| `secret.write`       | `tenant_secret`   | Create or update a secret              |
-| `secret.delete`      | `tenant_secret`   | Soft-delete a secret                   |
-| `secret.purge`       | `tenant_secret`   | Hard-delete after retention            |
-| `dek.rotated`        | `tenant_dek`      | DEK rotation initiated                 |
-| `config.write`       | `tenant_config`   | Config updated                         |
-| `config.rollback`    | `tenant_config`   | Config rolled back to previous version |
-| `member.invite`      | `tenant_member`   | User invited to tenant                 |
-| `member.remove`      | `tenant_member`   | User removed from tenant               |
-| `member.role_change` | `tenant_member`   | Role changed                           |
-| `channel.create`     | `channel_account` | New channel integration added          |
-| `channel.delete`     | `channel_account` | Channel integration removed            |
-| `auth.login`         | `user`            | Successful login                       |
-| `auth.login_failed`  | `user`            | Failed login attempt                   |
-| `auth.token_refresh` | `user`            | JWT refreshed                          |
-| `tenant.create`      | `tenant`          | New tenant provisioned                 |
-| `tenant.suspend`     | `tenant`          | Tenant suspended                       |
-| `tenant.delete`      | `tenant`          | Tenant deletion initiated              |
+| Action | Resource Type | Trigger |
+|--------|--------------|---------|
+| `secret.read` | `tenant_secret` | Any decryption of a secret |
+| `secret.write` | `tenant_secret` | Create or update a secret |
+| `secret.delete` | `tenant_secret` | Soft-delete a secret |
+| `secret.purge` | `tenant_secret` | Hard-delete after retention |
+| `dek.rotated` | `tenant_dek` | DEK rotation initiated |
+| `config.write` | `tenant_config` | Config updated |
+| `config.rollback` | `tenant_config` | Config rolled back to previous version |
+| `member.invite` | `tenant_member` | User invited to tenant |
+| `member.remove` | `tenant_member` | User removed from tenant |
+| `member.role_change` | `tenant_member` | Role changed |
+| `channel.create` | `channel_account` | New channel integration added |
+| `channel.delete` | `channel_account` | Channel integration removed |
+| `auth.login` | `user` | Successful login |
+| `auth.login_failed` | `user` | Failed login attempt |
+| `auth.token_refresh` | `user` | JWT refreshed |
+| `tenant.create` | `tenant` | New tenant provisioned |
+| `tenant.suspend` | `tenant` | Tenant suspended |
+| `tenant.delete` | `tenant` | Tenant deletion initiated |
 
 ### 7.2 Audit Log Integrity
 
@@ -674,10 +620,10 @@ For enterprise tenants with data residency requirements:
 ```typescript
 // tenant_configs.config_data.compliance.dataResidency
 type DataResidency = {
-  region: "us" | "eu" | "ap"; // determines DB routing
-  encryptionRequired: boolean; // always true in SaaS mode
-  retentionDays: number; // audit log retention (default: 365)
-  sessionRetentionDays: number; // session data retention (default: 90)
+  region: 'us' | 'eu' | 'ap';       // determines DB routing
+  encryptionRequired: boolean;        // always true in SaaS mode
+  retentionDays: number;              // audit log retention (default: 365)
+  sessionRetentionDays: number;       // session data retention (default: 90)
 };
 ```
 
