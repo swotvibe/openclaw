@@ -1,0 +1,19 @@
+{
+  "name": "@openclaw/notion",
+  "version": "2026.4.16",
+  "private": true,
+  "description": "OpenClaw Notion plugin",
+  "type": "module",
+  "dependencies": {
+    "@notionhq/client": "5.19.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "bundle": {
+      "stageRuntimeDependencies": true
+    }
+  }
+}
