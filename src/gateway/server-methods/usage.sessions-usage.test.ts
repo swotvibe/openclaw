@@ -64,6 +64,8 @@ vi.mock("../../infra/session-cost-usage.js", async () => {
       cacheReadCost: 0,
       cacheWriteCost: 0,
       missingCostEntries: 0,
+      missingUsageEntries: 0,
+      estimatedCostEntries: 0,
     })),
     loadSessionUsageTimeSeries: vi.fn(async () => ({
       sessionId: "s-opus",

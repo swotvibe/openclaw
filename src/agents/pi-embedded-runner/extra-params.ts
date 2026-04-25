@@ -21,7 +21,10 @@ import {
   createOpenAIStringContentWrapper,
 } from "./openai-stream-wrappers.js";
 import { resolveCacheRetention } from "./prompt-cache-retention.js";
-import { createOpenRouterSystemCacheWrapper } from "./proxy-stream-wrappers.js";
+import {
+  createAimlApiPayloadCompatibilityWrapper,
+  createOpenRouterSystemCacheWrapper,
+} from "./proxy-stream-wrappers.js";
 import { streamWithPayloadPatch } from "./stream-payload-utils.js";
 
 const defaultProviderRuntimeDeps = {
@@ -412,6 +415,10 @@ function applyPostPluginStreamWrappers(
   // visible reply path because it does not emit native Anthropic thinking
   // blocks. Disable thinking unless an earlier wrapper already set it.
   ctx.agent.streamFn = createMinimaxThinkingDisabledWrapper(ctx.agent.streamFn);
+
+  // AIMLAPI's chat-completions validator rejects null assistant content for
+  // tool calls and array-form tool results; normalize those payload shapes.
+  ctx.agent.streamFn = createAimlApiPayloadCompatibilityWrapper(ctx.agent.streamFn);
 
   const rawParallelToolCalls = resolveAliasedParamValue(
     [ctx.resolvedExtraParams, ctx.override],

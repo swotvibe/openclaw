@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { deriveSessionTotalTokens, hasNonzeroUsage, normalizeUsage } from "./usage.js";
+import {
+  deriveSessionTotalTokens,
+  hasNonzeroUsage,
+  hasRecordedUsageValues,
+  isZeroUsageSnapshot,
+  normalizeUsage,
+} from "./usage.js";
 
 describe("normalizeUsage", () => {
   it("normalizes Anthropic-style snake_case usage", () => {
@@ -45,6 +51,13 @@ describe("normalizeUsage", () => {
     expect(hasNonzeroUsage({ input: 0, output: 0 })).toBe(false);
     expect(hasNonzeroUsage({ input: 1 })).toBe(true);
     expect(hasNonzeroUsage({ total: 1 })).toBe(true);
+    expect(hasRecordedUsageValues(undefined)).toBe(false);
+    expect(hasRecordedUsageValues({})).toBe(false);
+    expect(hasRecordedUsageValues({ input: 0, output: 0 })).toBe(true);
+    expect(isZeroUsageSnapshot(undefined)).toBe(false);
+    expect(isZeroUsageSnapshot({})).toBe(false);
+    expect(isZeroUsageSnapshot({ input: 0, output: 0 })).toBe(true);
+    expect(isZeroUsageSnapshot({ input: 0, output: 1 })).toBe(false);
   });
 
   it("does not clamp derived session total tokens to the context window", () => {

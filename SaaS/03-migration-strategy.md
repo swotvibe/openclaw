@@ -25,41 +25,41 @@ All SaaS paths are gated behind feature flags resolved at startup:
 // Feature flags resolved from env + config
 interface SaasFeatureFlags {
   // Phase 0
-  saasMode: boolean; // OPENCLAW_SAAS_MODE=1
-  databaseEnabled: boolean; // PostgreSQL connection configured
+  saasMode: boolean;                  // OPENCLAW_SAAS_MODE=1
+  databaseEnabled: boolean;           // PostgreSQL connection configured
 
   // Phase 1
-  configStoreDual: boolean; // dual-write config to DB + filesystem
-  configStoreDb: boolean; // read config from DB (cutover)
-  sessionStoreDual: boolean; // dual-write sessions to DB + filesystem
-  sessionStoreDb: boolean; // read sessions from DB (cutover)
-  secretsVault: boolean; // use encrypted tenant_secrets
+  configStoreDual: boolean;           // dual-write config to DB + filesystem
+  configStoreDb: boolean;             // read config from DB (cutover)
+  sessionStoreDual: boolean;          // dual-write sessions to DB + filesystem
+  sessionStoreDb: boolean;            // read sessions from DB (cutover)
+  secretsVault: boolean;              // use encrypted tenant_secrets
 
   // Phase 2
-  channelIsolation: boolean; // per-tenant channel routing
-  mediaIsolation: boolean; // per-tenant media storage
-  memoryIsolation: boolean; // per-tenant vector store (pgvector)
+  channelIsolation: boolean;          // per-tenant channel routing
+  mediaIsolation: boolean;            // per-tenant media storage
+  memoryIsolation: boolean;           // per-tenant vector store (pgvector)
 
   // Phase 3
-  billingEnabled: boolean; // billing/subscription system active
-  usageMeteringEnabled: boolean; // message event tracking for billing
+  billingEnabled: boolean;            // billing/subscription system active
+  usageMeteringEnabled: boolean;      // message event tracking for billing
 }
 
 function resolveSaasFlags(env: NodeJS.ProcessEnv, config: OpenClawConfig): SaasFeatureFlags {
-  const saasMode = env.OPENCLAW_SAAS_MODE === "1";
+  const saasMode = env.OPENCLAW_SAAS_MODE === '1';
   return {
     saasMode,
     databaseEnabled: saasMode && Boolean(env.DATABASE_URL),
-    configStoreDual: saasMode && env.OPENCLAW_CONFIG_STORE_DUAL === "1",
-    configStoreDb: saasMode && env.OPENCLAW_CONFIG_STORE_DB === "1",
-    sessionStoreDual: saasMode && env.OPENCLAW_SESSION_STORE_DUAL === "1",
-    sessionStoreDb: saasMode && env.OPENCLAW_SESSION_STORE_DB === "1",
-    secretsVault: saasMode && env.OPENCLAW_SECRETS_VAULT === "1",
-    channelIsolation: saasMode && env.OPENCLAW_CHANNEL_ISOLATION === "1",
-    mediaIsolation: saasMode && env.OPENCLAW_MEDIA_ISOLATION === "1",
-    memoryIsolation: saasMode && env.OPENCLAW_MEMORY_ISOLATION === "1",
-    billingEnabled: saasMode && env.OPENCLAW_BILLING === "1",
-    usageMeteringEnabled: saasMode && env.OPENCLAW_USAGE_METERING === "1",
+    configStoreDual: saasMode && env.OPENCLAW_CONFIG_STORE_DUAL === '1',
+    configStoreDb: saasMode && env.OPENCLAW_CONFIG_STORE_DB === '1',
+    sessionStoreDual: saasMode && env.OPENCLAW_SESSION_STORE_DUAL === '1',
+    sessionStoreDb: saasMode && env.OPENCLAW_SESSION_STORE_DB === '1',
+    secretsVault: saasMode && env.OPENCLAW_SECRETS_VAULT === '1',
+    channelIsolation: saasMode && env.OPENCLAW_CHANNEL_ISOLATION === '1',
+    mediaIsolation: saasMode && env.OPENCLAW_MEDIA_ISOLATION === '1',
+    memoryIsolation: saasMode && env.OPENCLAW_MEMORY_ISOLATION === '1',
+    billingEnabled: saasMode && env.OPENCLAW_BILLING === '1',
+    usageMeteringEnabled: saasMode && env.OPENCLAW_USAGE_METERING === '1',
   };
 }
 ```
@@ -207,12 +207,12 @@ interface ConfigStore {
 // Factory that selects filesystem or DB based on feature flags
 function createConfigStore(flags: SaasFeatureFlags): ConfigStore {
   if (flags.configStoreDb) {
-    return new DbConfigStore(); // reads from DB
+    return new DbConfigStore();       // reads from DB
   }
   if (flags.configStoreDual) {
     return new DualWriteConfigStore(); // writes to both, reads from filesystem
   }
-  return new FilesystemConfigStore(); // current behavior
+  return new FilesystemConfigStore();  // current behavior
 }
 ```
 
@@ -248,15 +248,13 @@ async function migrateConfigToDb(options: {
   db: DrizzleClient;
 }): Promise<void> {
   // 1. Read existing config from filesystem
-  const raw = fs.readFileSync(options.configPath, "utf-8");
+  const raw = fs.readFileSync(options.configPath, 'utf-8');
   const parsed = json5.parse(raw);
 
   // 2. Validate
   const validated = validateConfigObjectWithPlugins(parsed, { env: process.env });
   if (!validated.ok) {
-    throw new Error(
-      `Config validation failed: ${validated.issues.map((i) => i.message).join(", ")}`,
-    );
+    throw new Error(`Config validation failed: ${validated.issues.map(i => i.message).join(', ')}`);
   }
 
   // 3. Extract secrets from config → encrypt → store in tenant_secrets
@@ -284,7 +282,7 @@ async function migrateConfigToDb(options: {
   const originalHash = hashConfig(JSON.stringify(sanitizedConfig));
   const loadedHash = hashConfig(JSON.stringify(loaded));
   if (originalHash !== loadedHash) {
-    throw new Error("Config roundtrip verification failed");
+    throw new Error('Config roundtrip verification failed');
   }
 }
 ```
@@ -315,9 +313,9 @@ class DualWriteSessionStore implements SessionStore {
     // Write to both; filesystem is source of truth during dual-write
     await Promise.all([
       this.fs.save(tenantId, sessionKey, entry),
-      this.db.save(tenantId, sessionKey, entry).catch((err) => {
+      this.db.save(tenantId, sessionKey, entry).catch(err => {
         // Log but don't fail — DB is secondary during dual-write
-        logger.warn("Session dual-write to DB failed", { sessionKey, error: err.message });
+        logger.warn('Session dual-write to DB failed', { sessionKey, error: err.message });
       }),
     ]);
   }
@@ -339,13 +337,11 @@ async function migrateSessionsToDb(options: {
   storePath: string;
   tenantId: string;
   db: DrizzleClient;
-  batchSize: number; // default: 500
+  batchSize: number;  // default: 500
 }): Promise<{ migrated: number; skipped: number; errors: number }> {
   const store = loadSessionStore(options.storePath, { skipCache: true });
   const entries = Object.entries(store);
-  let migrated = 0,
-    skipped = 0,
-    errors = 0;
+  let migrated = 0, skipped = 0, errors = 0;
 
   for (let i = 0; i < entries.length; i += options.batchSize) {
     const batch = entries.slice(i, i + options.batchSize);
@@ -354,24 +350,25 @@ async function migrateSessionsToDb(options: {
       for (const [sessionKey, entry] of batch) {
         try {
           const parsed = parseAgentSessionKey(sessionKey);
-          await tx
-            .insert(sessions)
-            .values({
-              tenantId: options.tenantId,
-              sessionKey,
-              agentId: parsed?.agentId ?? "main",
-              messages: entry.messages ?? [],
-              deliveryContext: entry.deliveryContext ?? null,
-              metadata: entry.metadata ?? {},
-              status: "active",
-              messageCount: (entry.messages ?? []).length,
-              lastActivityAt: entry.lastActivityAt ? new Date(entry.lastActivityAt) : new Date(),
-              createdAt: entry.createdAt ? new Date(entry.createdAt) : new Date(),
-            })
-            .onConflictDoNothing(); // skip duplicates
+          await tx.insert(sessions).values({
+            tenantId: options.tenantId,
+            sessionKey,
+            agentId: parsed?.agentId ?? 'main',
+            messages: entry.messages ?? [],
+            deliveryContext: entry.deliveryContext ?? null,
+            metadata: entry.metadata ?? {},
+            status: 'active',
+            messageCount: (entry.messages ?? []).length,
+            lastActivityAt: entry.lastActivityAt
+              ? new Date(entry.lastActivityAt)
+              : new Date(),
+            createdAt: entry.createdAt
+              ? new Date(entry.createdAt)
+              : new Date(),
+          }).onConflictDoNothing();  // skip duplicates
           migrated++;
         } catch (err) {
-          logger.error("Session migration error", { sessionKey, error: err });
+          logger.error('Session migration error', { sessionKey, error: err });
           errors++;
         }
       }
@@ -398,17 +395,16 @@ async function reconcileSessions(options: {
   const dbSessions = await listAllDbSessions(options.db, options.tenantId);
 
   const fsKeys = new Set(Object.keys(fsStore));
-  const dbKeys = new Set(dbSessions.map((s) => s.sessionKey));
+  const dbKeys = new Set(dbSessions.map(s => s.sessionKey));
 
-  let matched = 0,
-    driftCount = 0;
-  const fsOnly = [...fsKeys].filter((k) => !dbKeys.has(k)).length;
-  const dbOnly = [...dbKeys].filter((k) => !fsKeys.has(k)).length;
+  let matched = 0, driftCount = 0;
+  const fsOnly = [...fsKeys].filter(k => !dbKeys.has(k)).length;
+  const dbOnly = [...dbKeys].filter(k => !fsKeys.has(k)).length;
 
   for (const key of fsKeys) {
     if (dbKeys.has(key)) {
       const fsEntry = fsStore[key];
-      const dbEntry = dbSessions.find((s) => s.sessionKey === key);
+      const dbEntry = dbSessions.find(s => s.sessionKey === key);
       const fsHash = hashSessionEntry(fsEntry);
       const dbHash = hashSessionEntry(dbEntry);
       if (fsHash === dbHash) {
@@ -473,32 +469,28 @@ async function migrateAllowlistsToDb(options: {
   tenantId: string;
   db: DrizzleClient;
 }): Promise<void> {
-  const files = fs.readdirSync(options.credentialsDir).filter((f) => f.endsWith("-allowFrom.json"));
+  const files = fs.readdirSync(options.credentialsDir)
+    .filter(f => f.endsWith('-allowFrom.json'));
 
   for (const file of files) {
-    const channelType = file.replace("-allowFrom.json", "").split("-")[0];
-    const raw = fs.readFileSync(path.join(options.credentialsDir, file), "utf-8");
+    const channelType = file.replace('-allowFrom.json', '').split('-')[0];
+    const raw = fs.readFileSync(path.join(options.credentialsDir, file), 'utf-8');
     const entries: AllowFromEntry[] = JSON.parse(raw);
 
     // Find or create channel_account
     const channelAccount = await findOrCreateChannelAccount(
-      options.db,
-      options.tenantId,
-      channelType,
+      options.db, options.tenantId, channelType
     );
 
     // Import allowlist entries
     for (const entry of entries) {
       await withTenantContext(options.db, options.tenantId, async (tx) => {
-        await tx
-          .insert(channelAllowlists)
-          .values({
-            tenantId: options.tenantId,
-            channelAccountId: channelAccount.id,
-            senderId: entry.id ?? entry.sender,
-            source: "import",
-          })
-          .onConflictDoNothing();
+        await tx.insert(channelAllowlists).values({
+          tenantId: options.tenantId,
+          channelAccountId: channelAccount.id,
+          senderId: entry.id ?? entry.sender,
+          source: 'import',
+        }).onConflictDoNothing();
       });
     }
   }
@@ -656,7 +648,7 @@ class S3TenantMediaStore implements TenantMediaStore {
       Key: key,
       Body: file.buffer,
       ContentType: file.mimeType,
-      ServerSideEncryption: "aws:kms",
+      ServerSideEncryption: 'aws:kms',
       SSEKMSKeyId: this.kmsKeyId,
     });
     return { bucket: this.bucket, key, size: file.buffer.length };
@@ -833,42 +825,42 @@ New Tenant Registration:
 
 ### 7.2 Penetration Testing Scope
 
-| Test Case                        | Method                                                        | Pass Criteria                            |
-| -------------------------------- | ------------------------------------------------------------- | ---------------------------------------- |
-| **Cross-tenant session read**    | Authenticated as tenant A, request tenant B's sessions        | HTTP 403 or empty result                 |
-| **Cross-tenant secret read**     | Authenticated as tenant A, attempt to read tenant B's secrets | HTTP 403 or empty result                 |
-| **RLS bypass via SQL injection** | Craft inputs that attempt `SET LOCAL` manipulation            | All inputs sanitized; no bypass          |
-| **Webhook path enumeration**     | Brute-force webhook paths                                     | Rate limited; no information leakage     |
-| **JWT manipulation**             | Modify tenant claim in JWT                                    | Signature verification fails             |
-| **Privilege escalation**         | Member attempts admin operations                              | HTTP 403                                 |
-| **DEK extraction**               | Attempt to read encrypted DEK without KMS access              | KMS call required; no plaintext exposure |
-| **Audit log tampering**          | Attempt UPDATE/DELETE on audit_logs                           | Permission denied                        |
+| Test Case | Method | Pass Criteria |
+|-----------|--------|---------------|
+| **Cross-tenant session read** | Authenticated as tenant A, request tenant B's sessions | HTTP 403 or empty result |
+| **Cross-tenant secret read** | Authenticated as tenant A, attempt to read tenant B's secrets | HTTP 403 or empty result |
+| **RLS bypass via SQL injection** | Craft inputs that attempt `SET LOCAL` manipulation | All inputs sanitized; no bypass |
+| **Webhook path enumeration** | Brute-force webhook paths | Rate limited; no information leakage |
+| **JWT manipulation** | Modify tenant claim in JWT | Signature verification fails |
+| **Privilege escalation** | Member attempts admin operations | HTTP 403 |
+| **DEK extraction** | Attempt to read encrypted DEK without KMS access | KMS call required; no plaintext exposure |
+| **Audit log tampering** | Attempt UPDATE/DELETE on audit_logs | Permission denied |
 
 ### 7.3 Performance Benchmarks
 
-| Operation                | Filesystem Baseline   | DB Target                     | Acceptable Threshold |
-| ------------------------ | --------------------- | ----------------------------- | -------------------- |
-| Config read              | ~1ms (cached)         | < 5ms (cached), < 20ms (cold) | < 50ms p99           |
-| Session read             | ~5ms                  | < 10ms                        | < 50ms p99           |
-| Session write            | ~10ms (atomic rename) | < 15ms                        | < 50ms p99           |
-| Secret decrypt           | N/A (plaintext)       | < 5ms                         | < 10ms p99           |
-| Allowlist check          | ~2ms (JSON parse)     | < 5ms                         | < 10ms p99           |
-| Message event insert     | N/A                   | < 5ms                         | < 10ms p99           |
-| Memory search (pgvector) | ~50ms (LanceDB)       | < 100ms                       | < 200ms p99          |
+| Operation | Filesystem Baseline | DB Target | Acceptable Threshold |
+|-----------|-------------------|-----------|---------------------|
+| Config read | ~1ms (cached) | < 5ms (cached), < 20ms (cold) | < 50ms p99 |
+| Session read | ~5ms | < 10ms | < 50ms p99 |
+| Session write | ~10ms (atomic rename) | < 15ms | < 50ms p99 |
+| Secret decrypt | N/A (plaintext) | < 5ms | < 10ms p99 |
+| Allowlist check | ~2ms (JSON parse) | < 5ms | < 10ms p99 |
+| Message event insert | N/A | < 5ms | < 10ms p99 |
+| Memory search (pgvector) | ~50ms (LanceDB) | < 100ms | < 200ms p99 |
 
 ### 7.4 Self-Hosted Compatibility Matrix
 
-| Feature         | Self-Hosted (flags off)    | SaaS (flags on)                  |
-| --------------- | -------------------------- | -------------------------------- |
-| Config storage  | Filesystem (openclaw.json) | PostgreSQL (tenant_configs)      |
-| Session storage | Filesystem (JSON)          | PostgreSQL (sessions)            |
-| Secrets         | Env vars / file providers  | Encrypted vault (tenant_secrets) |
-| Auth            | Token/password             | JWT + OIDC                       |
-| Channels        | Single set, global         | Per-tenant, isolated             |
-| Media           | Local filesystem           | Tenant-prefixed (S3 or local)    |
-| Memory          | LanceDB / QMD              | pgvector                         |
-| Gateway         | Single instance            | Horizontally scalable            |
-| User accounts   | None (gateway-level auth)  | Full user/tenant model           |
+| Feature | Self-Hosted (flags off) | SaaS (flags on) |
+|---------|------------------------|-----------------|
+| Config storage | Filesystem (openclaw.json) | PostgreSQL (tenant_configs) |
+| Session storage | Filesystem (JSON) | PostgreSQL (sessions) |
+| Secrets | Env vars / file providers | Encrypted vault (tenant_secrets) |
+| Auth | Token/password | JWT + OIDC |
+| Channels | Single set, global | Per-tenant, isolated |
+| Media | Local filesystem | Tenant-prefixed (S3 or local) |
+| Memory | LanceDB / QMD | pgvector |
+| Gateway | Single instance | Horizontally scalable |
+| User accounts | None (gateway-level auth) | Full user/tenant model |
 
 ### 7.5 GA Release Checklist
 
