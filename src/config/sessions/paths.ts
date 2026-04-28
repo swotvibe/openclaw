@@ -134,7 +134,6 @@ function extractAgentIdFromAbsoluteSessionPath(candidateAbsPath: string): string
 }
 
 function resolveStructuralSessionFallbackPath(
-  baseSessionsDir: string,
   candidateAbsPath: string,
   expectedAgentId: string,
 ): string | undefined {
@@ -163,10 +162,7 @@ function resolveStructuralSessionFallbackPath(
   if (!fileName || fileName === "." || fileName === "..") {
     return undefined;
   }
-  const rebasedSessionsDir =
-    resolveSiblingAgentSessionsDir(baseSessionsDir, normalizedAgentId) ??
-    resolveAgentSessionsDir(normalizedAgentId);
-  return path.resolve(rebasedSessionsDir, fileName);
+  return path.normalize(path.resolve(candidateAbsPath));
 }
 
 function safeRealpathSync(filePath: string): string | undefined {
@@ -225,15 +221,19 @@ function resolvePathWithinSessionsDir(
         return resolvedFromPath;
       }
       // Cross-root compatibility for older absolute paths:
-      // rebase canonical .../agents/<agentId>/sessions/<file> shapes onto the
-      // current state root instead of preserving an inaccessible historical root.
+      // keep only canonical .../agents/<agentId>/sessions/<file> shapes,
+      // rebasing to the current state root when the stored path points to
+      // a stale root (e.g. Docker HOME=/home/node → systemd HOME=/home/ubuntu).
       const structuralFallback = resolveStructuralSessionFallbackPath(
-        realBase,
         realTrimmed,
         extractedAgentId,
       );
       if (structuralFallback) {
-        return structuralFallback;
+        const fileName = path.basename(structuralFallback);
+        const rebasedSessionsDir =
+          resolveSiblingAgentSessionsDir(realBase, extractedAgentId) ??
+          resolveAgentSessionsDir(extractedAgentId);
+        return path.resolve(rebasedSessionsDir, fileName);
       }
     }
   }

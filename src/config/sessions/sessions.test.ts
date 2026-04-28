@@ -462,6 +462,7 @@ describe("resolveAndPersistSessionFile", () => {
       sessionStore,
       storePath: fixture.storePath(),
       sessionEntry: sessionStore[sessionKey],
+      sessionsDir: fixture.sessionsDir(),
       fallbackSessionFile,
     });
 
@@ -483,6 +484,7 @@ describe("resolveAndPersistSessionFile", () => {
       sessionKey,
       sessionStore,
       storePath: fixture.storePath(),
+      sessionsDir: fixture.sessionsDir(),
       fallbackSessionFile,
     });
 
