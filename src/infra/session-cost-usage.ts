@@ -440,7 +440,8 @@ export function resolveExistingUsageSessionFile(params: {
       }
       const filePath = path.join(searchDir, entry.name);
       const stat = fs.statSync(filePath);
-      const archiveTimestamp = parseSessionArchiveTimestamp(entry.name)?.getTime() ?? stat.mtimeMs;
+      const archiveTimestampMs = parseSessionArchiveTimestamp(entry.name, "bak");
+      const archiveTimestamp = archiveTimestampMs ?? stat.mtimeMs;
       return {
         filePath,
         primary: isPrimarySessionTranscriptFileName(entry.name),
