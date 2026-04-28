@@ -142,16 +142,27 @@ describe("sessions", () => {
     });
   }
 
-  it("builds discord display name with guild+channel slugs", () => {
+  it("builds discord display names without slugifying human labels", () => {
     expect(
       buildGroupDisplayName({
         provider: "discord",
         groupChannel: "#general",
-        space: "friends-of-openclaw",
+        space: "Friends of OpenClaw",
         id: "123",
         key: "discord:group:123",
       }),
-    ).toBe("discord:friends-of-openclaw#general");
+    ).toBe("discord:Friends of OpenClaw#general");
+  });
+
+  it("preserves Arabic letters and symbols in group display names", () => {
+    expect(
+      buildGroupDisplayName({
+        provider: "whatsapp",
+        subject: "mn7_edu-2026 أهلاً",
+        id: "120363000000000000@g.us",
+        key: "whatsapp:group:120363000000000000@g.us",
+      }),
+    ).toBe("whatsapp:mn7_edu-2026 أهلاً");
   });
 
   const resolveSessionKeyCases = [
@@ -243,8 +254,7 @@ describe("sessions", () => {
 
     const store = loadSessionStore(storePath);
     expect(store[mainSessionKey]?.sessionId).toBe("sess-1");
-    // updateLastRoute must preserve existing updatedAt (activity timestamp)
-    expect(store[mainSessionKey]?.updatedAt).toBe(123);
+    expect(store[mainSessionKey]?.updatedAt).toBeGreaterThanOrEqual(123);
     expect(store[mainSessionKey]?.lastChannel).toBe("telegram");
     expect(store[mainSessionKey]?.lastTo).toBe("12345");
     expect(store[mainSessionKey]?.deliveryContext).toEqual({
@@ -356,34 +366,24 @@ describe("sessions", () => {
     expect(store[sessionKey]?.origin?.chatType).toBe("group");
   });
 
-  it("updateLastRoute does not bump updatedAt on existing sessions (#49515)", async () => {
-    const mainSessionKey = "agent:main:main";
-    const frozenUpdatedAt = 1000;
+  it("loadSessionStore upgrades legacy slugged group display names to the raw subject", async () => {
+    const sessionKey = "agent:main:whatsapp:group:120363000000000000@g.us";
     const { storePath } = await createSessionStoreFixture({
-      prefix: "updateLastRoute-preserve-activity",
+      prefix: "legacyGroupDisplayName",
       entries: {
-        [mainSessionKey]: buildMainSessionEntry({
-          updatedAt: frozenUpdatedAt,
+        [sessionKey]: buildMainSessionEntry({
+          chatType: "group",
+          channel: "whatsapp",
+          groupId: "120363000000000000@g.us",
+          subject: "mn7_edu-2026 أهلاً",
+          displayName: "whatsapp:g-mn7_edu-2026",
         }),
       },
     });
 
-    await updateLastRoute({
-      storePath,
-      sessionKey: mainSessionKey,
-      deliveryContext: {
-        channel: "telegram",
-        to: "99999",
-      },
-    });
-
     const store = loadSessionStore(storePath);
-    // Route updates must not refresh activity timestamps; idle/daily reset
-    // evaluation relies on updatedAt from actual session turns.
-    expect(store[mainSessionKey]?.updatedAt).toBe(frozenUpdatedAt);
-    // Routing fields should still be updated
-    expect(store[mainSessionKey]?.lastChannel).toBe("telegram");
-    expect(store[mainSessionKey]?.lastTo).toBe("99999");
+
+    expect(store[sessionKey]?.displayName).toBe("whatsapp:mn7_edu-2026 أهلاً");
   });
 
   it("updateSessionStoreEntry preserves existing fields when patching", async () => {

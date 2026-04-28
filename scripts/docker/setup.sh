@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "$ROOT_DIR/scripts/lib/docker-build.sh"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.yml"
 IMAGE_NAME="${OPENCLAW_IMAGE:-openclaw:local}"
@@ -28,7 +27,7 @@ require_cmd() {
 run_docker_build() {
   # Dockerfile uses BuildKit-only syntax (RUN --mount=type=cache). Force
   # BuildKit so hosts defaulting to the legacy builder do not fail.
-  docker_build_exec "$@"
+  DOCKER_BUILDKIT=1 docker build "$@"
 }
 
 is_truthy_value() {
@@ -90,19 +89,25 @@ NODE
 
 read_env_gateway_token() {
   local env_path="$1"
+  read_env_value "$env_path" OPENCLAW_GATEWAY_TOKEN
+}
+
+read_env_value() {
+  local env_path="$1"
+  local key="$2"
   local line=""
-  local token=""
+  local value=""
   if [[ ! -f "$env_path" ]]; then
     return 0
   fi
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
-    if [[ "$line" == OPENCLAW_GATEWAY_TOKEN=* ]]; then
-      token="${line#OPENCLAW_GATEWAY_TOKEN=}"
+    if [[ "$line" == "$key="* ]]; then
+      value="${line#"$key="}"
     fi
   done <"$env_path"
-  if [[ -n "$token" ]]; then
-    printf '%s' "$token"
+  if [[ -n "$value" ]]; then
+    printf '%s' "$value"
   fi
 }
 
@@ -276,7 +281,6 @@ export OPENCLAW_WORKSPACE_DIR
 export OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 export OPENCLAW_BRIDGE_PORT="${OPENCLAW_BRIDGE_PORT:-18790}"
 export OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
-export OPENCLAW_DISABLE_BONJOUR="${OPENCLAW_DISABLE_BONJOUR:-}"
 export OPENCLAW_IMAGE="$IMAGE_NAME"
 export OPENCLAW_DOCKER_APT_PACKAGES="${OPENCLAW_DOCKER_APT_PACKAGES:-}"
 export OPENCLAW_EXTENSIONS="${OPENCLAW_EXTENSIONS:-}"
@@ -285,16 +289,7 @@ export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
 export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS="${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}"
 export OPENCLAW_SANDBOX="$SANDBOX_ENABLED"
 export OPENCLAW_DOCKER_SOCKET="$DOCKER_SOCKET_PATH"
-export OPENCLAW_DOCKER_SETUP=1
 export OPENCLAW_TZ="$TIMEZONE"
-export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
-export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}"
-export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}"
-export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}"
-export OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-}"
-export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-}"
-export OTEL_SEMCONV_STABILITY_OPT_IN="${OTEL_SEMCONV_STABILITY_OPT_IN:-}"
-export OPENCLAW_OTEL_PRELOADED="${OPENCLAW_OTEL_PRELOADED:-}"
 
 # Detect Docker socket GID for sandbox group_add.
 DOCKER_GID=""
@@ -325,6 +320,15 @@ PY
   fi
 fi
 export OPENCLAW_GATEWAY_TOKEN
+
+if [[ -z "${NOTION_TOKEN:-}" ]]; then
+  DOTENV_NOTION_TOKEN="$(read_env_value "$ROOT_DIR/.env" NOTION_TOKEN || true)"
+  if [[ -n "$DOTENV_NOTION_TOKEN" ]]; then
+    NOTION_TOKEN="$DOTENV_NOTION_TOKEN"
+    echo "Reusing NOTION_TOKEN from $ROOT_DIR/.env"
+  fi
+fi
+export NOTION_TOKEN="${NOTION_TOKEN:-}"
 
 COMPOSE_FILES=("$COMPOSE_FILE")
 COMPOSE_ARGS=()
@@ -426,6 +430,30 @@ for compose_file in "${COMPOSE_FILES[@]}"; do
 done
 
 ENV_FILE="$ROOT_DIR/.env"
+ENV_KEYS=(
+  OPENCLAW_CONFIG_DIR
+  OPENCLAW_WORKSPACE_DIR
+  OPENCLAW_GATEWAY_PORT
+  OPENCLAW_BRIDGE_PORT
+  OPENCLAW_GATEWAY_BIND
+  OPENCLAW_GATEWAY_TOKEN
+  OPENCLAW_IMAGE
+  OPENCLAW_EXTRA_MOUNTS
+  OPENCLAW_HOME_VOLUME
+  OPENCLAW_DOCKER_APT_PACKAGES
+  OPENCLAW_EXTENSIONS
+  OPENCLAW_SANDBOX
+  OPENCLAW_DOCKER_SOCKET
+  DOCKER_GID
+  OPENCLAW_INSTALL_DOCKER_CLI
+  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS
+  OPENCLAW_TZ
+)
+
+if [[ -n "${NOTION_TOKEN:-}" ]]; then
+  ENV_KEYS+=(NOTION_TOKEN)
+fi
+
 upsert_env() {
   local file="$1"
   shift
@@ -463,33 +491,7 @@ upsert_env() {
   mv "$tmp" "$file"
 }
 
-upsert_env "$ENV_FILE" \
-  OPENCLAW_CONFIG_DIR \
-  OPENCLAW_WORKSPACE_DIR \
-  OPENCLAW_GATEWAY_PORT \
-  OPENCLAW_BRIDGE_PORT \
-  OPENCLAW_GATEWAY_BIND \
-  OPENCLAW_DISABLE_BONJOUR \
-  OPENCLAW_GATEWAY_TOKEN \
-  OPENCLAW_IMAGE \
-  OPENCLAW_EXTRA_MOUNTS \
-  OPENCLAW_HOME_VOLUME \
-  OPENCLAW_DOCKER_APT_PACKAGES \
-  OPENCLAW_EXTENSIONS \
-  OPENCLAW_SANDBOX \
-  OPENCLAW_DOCKER_SOCKET \
-  DOCKER_GID \
-  OPENCLAW_INSTALL_DOCKER_CLI \
-  OPENCLAW_ALLOW_INSECURE_PRIVATE_WS \
-  OPENCLAW_TZ \
-  OTEL_EXPORTER_OTLP_ENDPOINT \
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT \
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT \
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT \
-  OTEL_EXPORTER_OTLP_PROTOCOL \
-  OTEL_SERVICE_NAME \
-  OTEL_SEMCONV_STABILITY_OPT_IN \
-  OPENCLAW_OTEL_PRELOADED
+upsert_env "$ENV_FILE" "${ENV_KEYS[@]}"
 
 if [[ "$IMAGE_NAME" == "openclaw:local" ]]; then
   echo "==> Building Docker image: $IMAGE_NAME"
@@ -529,13 +531,6 @@ echo "==> Onboarding (interactive)"
 echo "Docker setup pins Gateway mode to local."
 echo "Gateway runtime bind comes from OPENCLAW_GATEWAY_BIND (default: lan)."
 echo "Current runtime bind: $OPENCLAW_GATEWAY_BIND"
-if is_truthy_value "$OPENCLAW_DISABLE_BONJOUR"; then
-  echo "Bonjour/mDNS advertising: force disabled (OPENCLAW_DISABLE_BONJOUR=$OPENCLAW_DISABLE_BONJOUR)."
-elif [[ -z "$OPENCLAW_DISABLE_BONJOUR" ]]; then
-  echo "Bonjour/mDNS advertising: auto (disabled inside the Gateway container unless explicitly enabled)."
-else
-  echo "Bonjour/mDNS advertising: explicitly enabled (OPENCLAW_DISABLE_BONJOUR=$OPENCLAW_DISABLE_BONJOUR)."
-fi
 echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
 echo "Tailscale exposure: Off (use host-level tailnet/Tailscale setup separately)."
 echo "Install Gateway daemon: No (managed by Docker Compose)"
