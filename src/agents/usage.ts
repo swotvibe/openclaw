@@ -77,6 +77,23 @@ export function makeZeroUsageSnapshot(): AssistantUsageSnapshot {
   };
 }
 
+export function hasRecordedUsageValues(snapshot: NormalizedUsage | AssistantUsageSnapshot | null | undefined): boolean {
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    (snapshot.input ?? 0) > 0 ||
+    (snapshot.output ?? 0) > 0 ||
+    (snapshot.cacheRead ?? 0) > 0 ||
+    (snapshot.cacheWrite ?? 0) > 0 ||
+    ((snapshot as AssistantUsageSnapshot).totalTokens ?? 0) > 0
+  );
+}
+
+export function isZeroUsageSnapshot(snapshot: NormalizedUsage | AssistantUsageSnapshot | null | undefined): boolean {
+  return !hasRecordedUsageValues(snapshot);
+}
+
 export function hasNonzeroUsage(usage?: NormalizedUsage | null): usage is NormalizedUsage {
   if (!usage) {
     return false;
