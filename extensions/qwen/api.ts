@@ -31,4 +31,9 @@ export {
   MODELSTUDIO_MODEL_CATALOG,
 } from "./models.js";
 export { buildModelStudioProvider, buildQwenProvider } from "./provider-catalog.js";
-export { createQwenThinkingWrapper, wrapQwenProviderStream } from "./stream.js";
+export {
+  buildQwenRealtimeVoiceProvider,
+  QWEN_REALTIME_CN_URL,
+  QWEN_REALTIME_DEFAULT_MODEL,
+  QWEN_REALTIME_GLOBAL_URL,
+} from "./realtime-voice-provider.js";

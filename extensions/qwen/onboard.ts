@@ -1,3 +1,4 @@
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
 import {
   createModelCatalogPresetAppliers,
   type OpenClawConfig,
@@ -19,6 +20,17 @@ export {
   QWEN_STANDARD_GLOBAL_BASE_URL,
 };
 
+const CONFIG_SUPPORTED_INPUTS = new Set<ModelDefinitionConfig["input"][number]>(["text", "image"]);
+
+function sanitizeConfigCatalogModels(
+  models: readonly ModelDefinitionConfig[],
+): ModelDefinitionConfig[] {
+  return models.map((model) => ({
+    ...model,
+    input: model.input.filter((input) => CONFIG_SUPPORTED_INPUTS.has(input)),
+  }));
+}
+
 const qwenPresetAppliers = createModelCatalogPresetAppliers<[string]>({
   primaryModelRef: QWEN_DEFAULT_MODEL_REF,
   resolveParams: (_cfg: OpenClawConfig, baseUrl: string) => {
@@ -27,7 +39,9 @@ const qwenPresetAppliers = createModelCatalogPresetAppliers<[string]>({
       providerId: "qwen",
       api: provider.api ?? "openai-completions",
       baseUrl,
-      catalogModels: provider.models ?? [],
+      // Persist only config-schema-supported modalities. Runtime multimodal
+      // providers still keep their richer capability metadata separately.
+      catalogModels: sanitizeConfigCatalogModels(provider.models ?? []),
       aliases: [
         ...(provider.models ?? []).flatMap((model) => [
           `qwen/${model.id}`,
