@@ -27,3 +27,4 @@ export {
   buildChannelKeyCandidates,
   resolveChannelEntryMatch,
 } from "openclaw/plugin-sdk/channel-targets";
+export { ensureConfiguredAcpBindingReady } from "openclaw/plugin-sdk/acp-binding-runtime";
