@@ -81,6 +81,9 @@ export async function resolveRuntimePluginDiscoveryProviders(
     .filter((provider) => resolveProviderCatalogOrderHook(provider));
 }
 
+// Alias for backward compatibility
+export const resolvePluginDiscoveryProviders = resolveRuntimePluginDiscoveryProviders;
+
 export function groupPluginDiscoveryProvidersByOrder(
   providers: ProviderPlugin[],
 ): Record<ProviderDiscoveryOrder, ProviderPlugin[]> {
