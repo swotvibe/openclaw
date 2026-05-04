@@ -236,6 +236,9 @@ export function derivePromptTokens(usage?: {
   return sum > 0 ? sum : undefined;
 }
 
+// Alias for backward compatibility
+export const deriveContextPromptTokens = derivePromptTokens;
+
 export function deriveSessionTotalTokens(params: {
   usage?: {
     input?: number;
