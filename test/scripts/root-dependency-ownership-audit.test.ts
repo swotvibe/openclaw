@@ -269,7 +269,7 @@ describe("collectRootDependencyOwnershipCheckErrors", () => {
     expect(collectRootDependencyOwnershipCheckErrors(records)).toEqual([]);
   });
 
-  it("allows Feishu SDK at root while Feishu chunks ship in the core package", () => {
+  it("rejects Feishu SDK at root because Feishu is externalized from the core package", () => {
     const repoRoot = makeTempRepo();
     writeRepoFile(
       repoRoot,
@@ -293,12 +293,14 @@ describe("collectRootDependencyOwnershipCheckErrors", () => {
 
     expect(records).toMatchObject([
       {
-        category: "root_owned_extension_runtime",
+        category: "extension_only_localizable",
         depName: "@larksuiteoapi/node-sdk",
         sections: ["extensions"],
       },
     ]);
-    expect(collectRootDependencyOwnershipCheckErrors(records)).toEqual([]);
+    expect(collectRootDependencyOwnershipCheckErrors(records)).toEqual([
+      expect.stringContaining("root dependency '@larksuiteoapi/node-sdk' is extension-owned"),
+    ]);
   });
 
   it("allows runtime deps for bundled plugins that are still packaged in core", () => {

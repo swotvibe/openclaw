@@ -101,6 +101,15 @@ describe("tsdown config", () => {
     );
   });
 
+  it("does not compile root-package-excluded externalized plugins into root dist entries", () => {
+    const distGraph = unifiedDistGraph();
+    const keys = entryKeys(distGraph as TsdownConfigEntry);
+
+    expect(keys).toContain(bundledEntry("active-memory"));
+    expect(keys).not.toContain(bundledEntry("feishu"));
+    expect(keys).not.toContain(bundledEntry("discord"));
+  });
+
   it("keeps gateway lifecycle lazy runtime behind one stable dist entry", () => {
     const distGraph = unifiedDistGraph();
 
