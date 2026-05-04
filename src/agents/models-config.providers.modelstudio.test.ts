@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { buildMoonshotProvider } from "../../extensions/moonshot/api.js";
 import {
   applyNativeStreamingUsageCompat,
   buildModelStudioProvider,
 } from "./models-config.providers.js";
-import { buildMoonshotProvider } from "./models-config.providers.static.js";
 
 // Helper: check every model in a provider has supportsUsageInStreaming === true.
 function allModelsStreamingUsage(

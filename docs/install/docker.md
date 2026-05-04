@@ -182,6 +182,12 @@ The route is protected by Gateway authentication. Do not expose a separate
 public `/metrics` port or unauthenticated reverse-proxy path. See
 [Prometheus metrics](/gateway/prometheus).
 
+Docker Compose also forwards opt-in SaaS database settings from the project
+`.env` into the gateway and CLI containers. Use `OPENCLAW_SAAS_MODE=1` with
+either `DATABASE_URL` or the split `OPENCLAW_POSTGRES_*` variables. Service-role
+connections use `OPENCLAW_SERVICE_DATABASE_URL` or `OPENCLAW_SERVICE_POSTGRES_*`.
+These are ignored unless the corresponding SaaS feature flags are enabled.
+
 ### Health checks
 
 Container probe endpoints (no auth required):

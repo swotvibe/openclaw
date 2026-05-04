@@ -20,7 +20,7 @@
 ╠══════════════════════════════════════════════════════════════╣
 ║ Tables Designed:  14 core + 3 partitioned                    ║
 ║ Indexes:          42+                                        ║
-║ RLS Policies:     28+ (2 per tenant-scoped table)            ║
+║ RLS Policies:     14+ tenant policies + internal service path ║
 ║ Migrations:       Phased (see 03-migration-strategy.md)      ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
@@ -34,6 +34,14 @@
 - **Existing `accountId`** in OpenClaw maps to channel bot accounts within a tenant, not to SaaS tenants
 - **Config is JSONB** — preserves flexibility of current JSON5 config while enabling DB-level queries
 - **No financial/billing data** in this schema — billing tables covered separately in Phase 3
+
+### Execution Corrections
+
+- **Tenant request traffic uses a dedicated app role** that always remains under RLS
+- **Every tenant unit of work is transaction-scoped** so `SET LOCAL app.current_tenant_id` and all tenant queries share one transaction
+- **No generic `app.bypass_rls` session flag exists in the request path**
+- **Cross-tenant platform work uses a separate internal role/path** or tightly scoped `SECURITY DEFINER` procedures outside tenant-facing handlers
+- **Operator-only local state** such as background task registry remains outside this schema until dedicated platform tables exist
 
 ---
 
@@ -210,8 +218,8 @@ ALTER TABLE tenant_members FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tenant_members
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON tenant_members
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 4.4 tenant_configs
@@ -265,8 +273,8 @@ ALTER TABLE tenant_configs FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tenant_configs
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON tenant_configs
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 4.5 tenant_secrets
@@ -322,8 +330,8 @@ ALTER TABLE tenant_secrets FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tenant_secrets
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON tenant_secrets
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 4.6 agents
@@ -374,8 +382,8 @@ ALTER TABLE agents FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON agents
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON agents
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 4.7 channel_accounts
@@ -434,8 +442,8 @@ ALTER TABLE channel_accounts FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON channel_accounts
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON channel_accounts
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 4.8 channel_allowlists
@@ -484,8 +492,8 @@ ALTER TABLE channel_allowlists FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON channel_allowlists
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON channel_allowlists
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ---
@@ -578,8 +586,8 @@ ALTER TABLE sessions FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON sessions
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON sessions
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 5.2 pairing_requests
@@ -624,8 +632,8 @@ ALTER TABLE pairing_requests FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON pairing_requests
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON pairing_requests
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ---
@@ -694,8 +702,8 @@ ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON audit_logs
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON audit_logs
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 6.2 message_events (UNBOUNDED — partitioned from day one)
@@ -770,8 +778,8 @@ ALTER TABLE message_events FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON message_events
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON message_events
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ### 6.3 memory_embeddings (pgvector — tenant-isolated RAG)
@@ -824,8 +832,8 @@ ALTER TABLE memory_embeddings FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON memory_embeddings
   USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
-CREATE POLICY service_bypass ON memory_embeddings
-  USING (current_setting('app.bypass_rls', true) = 'on');
+-- No generic service bypass policy.
+-- Cross-tenant work uses a separate internal DB role/path.
 ```
 
 ---
@@ -850,13 +858,13 @@ async function withTenantContext<T>(
   });
 }
 
-// Service/migration bypass (admin-only, never from user-facing code paths)
-async function withServiceBypass<T>(
-  db: DrizzleClient,
+// Internal service work uses a separate DB client / role.
+// It does not flip a session flag inside tenant request traffic.
+async function withServiceContext<T>(
+  serviceDb: DrizzleClient,
   fn: (tx: DrizzleTransaction) => Promise<T>,
 ): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL app.bypass_rls = 'on'`);
+  return serviceDb.transaction(async (tx) => {
     return fn(tx);
   });
 }
@@ -907,9 +915,11 @@ SELECT count(*) FROM tenant_secrets;
 | `~/.openclaw/credentials/{ch}-allowFrom.json` | `channel_allowlists` | Import entries; create channel_accounts first |
 | `~/.openclaw/credentials/{ch}-pairing.json` | `pairing_requests` | Import pending; expired entries discarded |
 | `~/.openclaw/credentials/oauth.json` | `tenant_secrets` (encrypted) | Encrypt → store; destroy plaintext |
-| `~/.openclaw/auth-profiles.json` | `tenant_secrets` + `tenant_configs.auth` | Split credentials from config |
+| Root + per-agent `auth-profiles.json` stores | `tenant_secrets` + `tenant_configs.auth` | Split credentials from config; disable main-agent inheritance for SaaS runtimes |
 | Env vars (`OPENAI_API_KEY`, etc.) | `tenant_secrets` | Encrypt on import; env vars remain fallback for self-hosted |
-| LanceDB vector files | `memory_embeddings` | Re-embed or bulk-insert existing vectors |
+| `~/.openclaw/memory/*.sqlite` | `memory_embeddings` | Re-embed or bulk-import built-in local memory state |
+| LanceDB vector files (optional/QMD) | `memory_embeddings` | Import or re-embed if this optional path is in use |
+| `~/.openclaw/tasks/runs.sqlite` | Future `task_runs` + `task_delivery_state` platform tables | Keep operator-only until dedicated Postgres-backed task tables exist |
 
 ---
 

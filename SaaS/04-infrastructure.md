@@ -8,6 +8,8 @@
 
 ## 1. Target Deployment Topology
 
+This topology assumes the **primary SaaS UI is a custom product surface** owned by this project. The built-in Gateway Control UI remains an operator/developer surface unless a change is generic enough to upstream cleanly.
+
 ```
                          ┌──────────────────────┐
                          │    CDN / WAF          │
@@ -54,6 +56,15 @@
 
 ## 2. Component Specifications
 
+### 2.0 UI Boundary
+
+| Surface | Role | Architectural Rule |
+|---------|------|---------------------|
+| **Custom SaaS UI** | Primary tenant/admin product surface | Keep in a separate app/package; consume stable control-plane APIs |
+| **Tenant-safe SaaS API** | Contract consumed by the custom SaaS UI | Accepts SaaS JWT only; excludes operator-only methods and raw admin RPCs |
+| **Built-in Gateway Control UI** | Operator/developer console | Reuse only for generic upstream-friendly capabilities; do not make it the main SaaS tenant console by default |
+| **Operator control plane** | Internal ops and self-hosted administration | Existing config/exec/log/update surfaces remain operator-only and are not part of the tenant contract |
+
 ### 2.1 Gateway Instances (Stateless)
 
 | Parameter | Value | Rationale |
@@ -62,7 +73,7 @@
 | **Instances** | 2–N (auto-scaled by CPU/memory) | Horizontal scaling |
 | **CPU** | 2–4 vCPU per instance | WebSocket + LLM proxy workload |
 | **Memory** | 4–8 GB per instance | DEK cache, session cache, WS connections |
-| **State** | None on disk | All persistent state in PostgreSQL + object storage |
+| **State** | No tenant-owned state on local disk | Tenant-facing persistent state lives in PostgreSQL + object storage; operator-only local state may remain temporarily if it is not exposed in the SaaS surface |
 | **Health check** | `GET /healthz` (existing endpoint) | LB routes only to healthy instances |
 | **Graceful shutdown** | Drain WS connections over 30s | Zero-downtime deploys |
 
@@ -81,6 +92,10 @@ const sessionStore = await dbSessionStore.load(tenantId, sessionKey);  // Postgr
 const config = await dbConfigStore.load(tenantId);                     // PostgreSQL (cached)
 const allowFrom = await dbAllowlistStore.check(tenantId, channelAccountId, senderId); // PostgreSQL
 ```
+
+**Upstream compatibility rule:** prefer adding stable APIs and backend contracts that both upstream OpenClaw and the custom SaaS UI can consume. Avoid product-specific forks inside the built-in Control UI unless there is a strong reason and an explicit maintenance owner.
+
+**Tenant surface rule:** raw gateway config mutation, exec approval management, log tailing, update/restart, and other operator-control RPCs are not exposed through the tenant SaaS API.
 
 ### 2.2 PostgreSQL Primary
 
@@ -115,6 +130,8 @@ const allowFrom = await dbAllowlistStore.check(tenantId, channelAccountId, sende
 | **server_tls_sslmode** | verify-full | TLS to PostgreSQL |
 
 **Critical RLS note:** PgBouncer in `transaction` mode resets all session-level settings between transactions. This is **correct and required** for RLS — each transaction independently sets `app.current_tenant_id` via `SET LOCAL`. Never use `session` mode with multi-tenant RLS.
+
+**Role separation note:** run separate tenant and service pools/DSNs. Tenant-facing traffic uses the tenant app role under RLS. Cross-tenant platform jobs use a separate internal service role/path and never share the tenant request pool.
 
 ### 2.4 Redis
 
@@ -399,7 +416,7 @@ interface LogContext {
 | **Cache Ratio Drop** | cache_ratio < 0.95 for 10 min | Warning | Check shared_buffers; identify large seq scans |
 | **Dead Tuple Bloat** | dead_pct > 10% on any table for 1 hour | Warning | Check autovacuum; manual VACUUM if needed |
 | **Slow Queries** | mean_exec_time > 1000ms for any query | Warning | Add index; optimize query plan |
-| **RLS Bypass Attempt** | `app.bypass_rls = 'on'` set from non-service role | Critical | Immediate investigation; potential breach |
+| **Unexpected Service-Role Usage** | tenant/API traffic observed on service DB role/path | Critical | Immediate investigation; isolate request path and rotate credentials if needed |
 | **Secret Decryption Failure** | decrypt errors > 5/min for any tenant | Critical | Check KMS connectivity; verify DEK integrity |
 | **Cross-Tenant Query** | Any query returning data where `tenant_id != current_setting('app.current_tenant_id')` | Critical | Data isolation breach; incident response |
 | **High Error Rate** | HTTP 5xx > 1% for 5 min | Critical | Check DB health; check gateway logs |

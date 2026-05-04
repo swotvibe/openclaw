@@ -25,10 +25,25 @@ This plan is organized into 5 documents, each self-contained and ordered for seq
 
 OpenClaw today is a **single-tenant, self-hosted** multi-channel AI gateway with:
 
-- **No database** — all persistence is JSON files on local filesystem
-- **No user accounts** — gateway uses shared bearer tokens
+- **No primary SaaS control-plane database** — most persistence is JSON/JSON5 on local filesystem, with additional local SQLite stores for task/runtime state
+- **No SaaS user accounts** — gateway uses shared operator auth, not tenant identities
 - **No multi-tenancy** — single config, single set of credentials, single session store
 - **Strong plugin architecture** — extensible channel/provider system worth preserving
+
+---
+
+## Additional Owner Constraints
+
+These constraints are now part of the plan:
+
+- **Keep pulling upstream updates from the official OpenClaw repository.**
+  The SaaS implementation should minimize long-lived fork pressure and avoid deep edits to core surfaces unless they are generic and upstream-friendly.
+- **Build a custom UI owned by this project.**
+  The plan should not assume reuse of the existing Gateway Control UI as the primary SaaS admin surface.
+- **Prefer additive seams over invasive rewrites.**
+  New SaaS code should live behind new services, adapters, APIs, plugins, or apps so rebasing onto upstream remains practical.
+- **Treat upstream compatibility as a product requirement.**
+  If a change makes future pulls from the official repository materially harder, it should be treated as architectural debt and justified explicitly.
 
 ---
 
@@ -42,6 +57,9 @@ A **multi-tenant SaaS platform** where:
 - Gateway instances are **stateless and horizontally scalable** — no shared filesystem
 - **Self-hosted mode is preserved** as a feature-flag-gated single-tenant deployment
 - **Audit trail** captures every sensitive operation immutably
+- **Custom SaaS UI is separate** from the built-in Gateway Control UI
+- **Tenant-facing APIs are separate** from operator control-plane surfaces
+- **Upstream repo sync remains practical** throughout the transformation
 
 ---
 
@@ -61,7 +79,8 @@ A **multi-tenant SaaS platform** where:
 │  Layer 3: Database (RLS)                                     │
 │    └─ POLICY tenant_isolation USING                          │
 │       (tenant_id = current_setting('app.current_tenant_id')) │
-│    └─ FORCE ROW LEVEL SECURITY on every tenant table         │
+│    └─ Tenant app role always runs under RLS                  │
+│    └─ Internal service work uses a separate DB role/path     │
 │                                                             │
 │  Layer 4: Encryption                                         │
 │    └─ Per-tenant DEK (Data Encryption Key)                   │

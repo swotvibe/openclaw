@@ -1,23 +1,12 @@
+import {
+  buildAnthropicVertexProvider,
+  hasAnthropicVertexAvailableAuth,
+} from "../../extensions/anthropic-vertex/api.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { coerceSecretRef, resolveSecretInputRef } from "../config/types.secrets.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import {
-  buildAnthropicVertexProvider,
-  buildKimiCodingProvider,
-  buildKilocodeProvider,
-  buildModelStudioProvider,
-  buildNvidiaProvider,
-  QIANFAN_BASE_URL,
-  QIANFAN_DEFAULT_MODEL_ID,
-  buildQianfanProvider,
-  MODELSTUDIO_BASE_URL,
-  MODELSTUDIO_DEFAULT_MODEL_ID,
-  XIAOMI_DEFAULT_MODEL_ID,
-  buildXiaomiProvider,
-} from "../plugin-sdk/provider-catalog.js";
 import { isRecord } from "../utils.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
-import { hasAnthropicVertexAvailableAuth } from "./anthropic-vertex-provider.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
 import {
@@ -26,19 +15,20 @@ import {
 } from "./google-generative-ai.js";
 import { normalizeGoogleModelId, normalizeXaiModelId } from "./model-id-normalization.js";
 import { resolveOllamaApiBase } from "./models-config.providers.discovery.js";
+export { buildKilocodeProvider } from "../../extensions/kilocode/api.js";
+export { buildKimiCodingProvider } from "../../extensions/kimi-coding/api.js";
 export {
-  buildKimiCodingProvider,
-  buildKilocodeProvider,
   MODELSTUDIO_BASE_URL,
   MODELSTUDIO_DEFAULT_MODEL_ID,
   buildModelStudioProvider,
-  buildNvidiaProvider,
+} from "../../extensions/qwen/api.js";
+export { buildNvidiaProvider } from "../../extensions/nvidia/api.js";
+export {
   QIANFAN_BASE_URL,
   QIANFAN_DEFAULT_MODEL_ID,
   buildQianfanProvider,
-  XIAOMI_DEFAULT_MODEL_ID,
-  buildXiaomiProvider,
-} from "../plugin-sdk/provider-catalog.js";
+} from "../../extensions/qianfan/api.js";
+export { XIAOMI_DEFAULT_MODEL_ID, buildXiaomiProvider } from "../../extensions/xiaomi/api.js";
 import {
   groupPluginDiscoveryProvidersByOrder,
   normalizePluginDiscoveryResult,
@@ -712,7 +702,7 @@ async function resolvePluginImplicitProviders(
   order: import("../plugins/types.js").ProviderDiscoveryOrder,
 ): Promise<Record<string, ProviderConfig> | undefined> {
   const onlyPluginIds = resolveLiveProviderDiscoveryFilter(ctx.env);
-  const providers = resolvePluginDiscoveryProviders({
+  const providers = await resolvePluginDiscoveryProviders({
     config: ctx.config,
     workspaceDir: ctx.workspaceDir,
     env: ctx.env,

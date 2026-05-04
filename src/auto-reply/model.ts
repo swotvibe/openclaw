@@ -1,5 +1,5 @@
 import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
-import { escapeRegExp } from "../utils.js";
+import { escapeRegExp } from "../shared/regexp.js";
 
 export function extractModelDirective(
   body?: string,
