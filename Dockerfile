@@ -62,27 +62,16 @@ RUN corepack enable
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY openclaw.mjs ./
 COPY ui/package.json ./ui/package.json
 COPY patches ./patches
-COPY scripts/postinstall-bundled-plugins.mjs scripts/preinstall-package-manager-warning.mjs scripts/npm-runner.mjs scripts/windows-cmd-helpers.mjs ./scripts/
+COPY scripts/postinstall-bundled-plugins.mjs scripts/npm-runner.mjs scripts/windows-cmd-helpers.mjs scripts/docker-bootstrap-config.mjs scripts/docker-entrypoint.sh ./scripts/
 
 COPY --from=ext-deps /out/ ./${OPENCLAW_BUNDLED_PLUGIN_DIR}/
-
-# Local vendor packages referenced via file: protocol in pnpm-lock.yaml must be
-# present before pnpm install so the frozen-lockfile validation succeeds.
-COPY vendor/baileys-latest.tgz ./vendor/
 
 # Reduce OOM risk on low-memory hosts during dependency installation.
 # Docker builds on small VMs may otherwise fail with "Killed" (exit 137).
 RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
   NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile
-
-# pnpm v10+ may append peer-resolution hashes to virtual-store folder names; do not hardcode `.pnpm/...`
-# paths. Fail fast here if the Matrix native binding did not materialize after install.
-RUN echo "==> Verifying critical native addons..." && \
-  find /app/node_modules -name "matrix-sdk-crypto*.node" 2>/dev/null | grep -q . || \
-  (echo "ERROR: matrix-sdk-crypto native addon missing (pnpm install may have silently failed on this arch)" >&2 && exit 1)
 
 COPY . .
 
@@ -113,20 +102,7 @@ RUN pnpm qa:lab:build
 # Prune dev dependencies and strip build-only metadata before copying
 # runtime assets into the final image.
 FROM build AS runtime-assets
-ARG OPENCLAW_EXTENSIONS
-ARG OPENCLAW_BUNDLED_PLUGIN_DIR
-# Keep the install layer frozen, but allow prune to run against the full copied
-# workspace tree subset used during `pnpm install`. The build stage only copied
-# the root, `ui`, and opted-in plugin manifests into the install layer, so
-# prune must not rediscover unrelated workspaces from the later full source
-# copy.
-RUN printf 'packages:\n  - .\n  - ui\n' > /tmp/pnpm-workspace.runtime.yaml && \
-  for ext in $OPENCLAW_EXTENSIONS; do \
-  printf '  - %s/%s\n' "$OPENCLAW_BUNDLED_PLUGIN_DIR" "$ext" >> /tmp/pnpm-workspace.runtime.yaml; \
-  done && \
-  cp /tmp/pnpm-workspace.runtime.yaml pnpm-workspace.yaml && \
-  CI=true NPM_CONFIG_FROZEN_LOCKFILE=false pnpm prune --prod && \
-  node scripts/postinstall-bundled-plugins.mjs && \
+RUN CI=true pnpm prune --prod && \
   find dist -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) -delete
 
 # ── Runtime base images ─────────────────────────────────────────
@@ -179,9 +155,15 @@ COPY --from=runtime-assets --chown=node:node /app/node_modules ./node_modules
 COPY --from=runtime-assets --chown=node:node /app/package.json .
 COPY --from=runtime-assets --chown=node:node /app/openclaw.mjs .
 COPY --from=runtime-assets --chown=node:node /app/${OPENCLAW_BUNDLED_PLUGIN_DIR} ./${OPENCLAW_BUNDLED_PLUGIN_DIR}
+COPY --from=runtime-assets --chown=node:node /app/scripts/docker-bootstrap-config.mjs ./scripts/docker-bootstrap-config.mjs
+COPY --from=runtime-assets --chown=node:node /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 COPY --from=runtime-assets --chown=node:node /app/skills ./skills
 COPY --from=runtime-assets --chown=node:node /app/docs ./docs
 COPY --from=runtime-assets --chown=node:node /app/qa ./qa
+
+# In npm-installed Docker images, prefer the copied source extension tree for
+# bundled discovery so package metadata that points at source entries stays valid.
+ENV OPENCLAW_BUNDLED_PLUGINS_DIR=/app/${OPENCLAW_BUNDLED_PLUGIN_DIR}
 
 # Keep pnpm available in the runtime image for container-local workflows.
 # Use a shared Corepack home so the non-root `node` user does not need a
@@ -209,18 +191,6 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
   apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES; \
   fi
-
-# Optionally install sudo and grant the bundled non-root `node` user
-# passwordless elevation inside the container.
-ARG OPENCLAW_INSTALL_SUDO=""
-RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=openclaw-bookworm-apt-lists,target=/var/lib/apt,sharing=locked \
-    if [ -n "$OPENCLAW_INSTALL_SUDO" ]; then \
-      apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo && \
-      printf 'node ALL=(ALL) NOPASSWD:ALL\nDefaults:node !requiretty\n' > /etc/sudoers.d/openclaw-node && \
-      chmod 0440 /etc/sudoers.d/openclaw-node; \
-    fi
 
 # Optionally install Chromium and Xvfb for browser automation.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_BROWSER=1 ...
@@ -274,7 +244,14 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
 RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
   && chmod 755 /app/openclaw.mjs
 
+RUN chmod 755 /app/scripts/docker-entrypoint.sh
+
 ENV NODE_ENV=production
+
+# Ensure the node user home directory exists and is writable.
+# The node:24-bookworm base image defines 'node' (uid 1000) but may not
+# create /home/node, causing EACCES when the runtime writes config there.
+RUN mkdir -p /home/node && chown node:node /home/node
 
 # Security hardening: Run as non-root user
 # The node:24-bookworm image includes a 'node' user (uid 1000)
@@ -295,4 +272,6 @@ USER node
 # For external access from host/ingress, override bind to "lan" and set auth.
 HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]

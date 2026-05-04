@@ -815,11 +815,6 @@ export async function handleControlUiHttpRequest(
     respondControlUiAssetsUnavailable(res, { configuredRootPath: rootState.path });
     return true;
   }
-  if (rootState?.kind === "missing") {
-    respondControlUiAssetsUnavailable(res);
-    return true;
-  }
-
   const root =
     rootState?.kind === "resolved" || rootState?.kind === "bundled"
       ? rootState.path
@@ -875,7 +870,7 @@ export async function handleControlUiHttpRequest(
 
   const isBundledRoot =
     rootState?.kind === "bundled" ||
-    (rootState === undefined &&
+    ((rootState === undefined || rootState?.kind === "missing") &&
       isPackageProvenControlUiRootSync(root, {
         moduleUrl: import.meta.url,
         argv1: process.argv[1],
