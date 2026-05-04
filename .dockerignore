@@ -76,3 +76,4 @@ vendor/
 !vendor/a2ui/renderers/
 !vendor/a2ui/renderers/lit/
 !vendor/a2ui/renderers/lit/**
+!vendor/baileys-latest.tgz
