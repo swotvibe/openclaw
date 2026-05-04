@@ -12,16 +12,16 @@ OpenClaw is a **multi-channel AI gateway** that routes messages across 20+ messa
 
 ### 1.1 Data Storage — Current State
 
-| Layer                   | Current Implementation                                                        | SaaS Risk                                                                |
-| ----------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Configuration**       | Single JSON5 file (`~/.openclaw/openclaw.json`)                               | No tenant isolation; single config governs all behavior                  |
-| **Sessions**            | JSON files on local filesystem (`sessions/store.ts`) with file-level locking  | No multi-tenant session separation; file I/O does not scale horizontally |
-| **Secrets/Credentials** | Env vars, file-based, or exec-based providers (`src/secrets/`)                | Secrets are global; no per-tenant vault isolation                        |
-| **Auth Profiles**       | JSON file (`auth-profiles.json`) in state dir                                 | Single set of provider credentials; no tenant-scoped API keys            |
-| **Pairing/Allowlists**  | Per-channel JSON files (`{channel}-allowFrom.json`, `{channel}-pairing.json`) | Flat files; no tenant scoping                                            |
-| **Memory/RAG**          | Builtin or QMD (LanceDB vector store)                                         | Single vector namespace; no tenant data boundaries                       |
-| **Media**               | Local filesystem with optional TTL cleanup                                    | No tenant-scoped storage quotas or isolation                             |
-| **Gateway Auth**        | Token/password, Tailscale, trusted-proxy                                      | No user accounts, no RBAC, no tenant identity                            |
+| Layer | Current Implementation | SaaS Risk |
+|-------|----------------------|-----------|
+| **Configuration** | Single JSON5 file (`~/.openclaw/openclaw.json`) | No tenant isolation; single config governs all behavior |
+| **Sessions** | JSON files on local filesystem (`sessions/store.ts`) with file-level locking | No multi-tenant session separation; file I/O does not scale horizontally |
+| **Secrets/Credentials** | Env vars, file-based, or exec-based providers (`src/secrets/`) | Secrets are global; no per-tenant vault isolation |
+| **Auth Profiles** | JSON file (`auth-profiles.json`) in state dir | Single set of provider credentials; no tenant-scoped API keys |
+| **Pairing/Allowlists** | Per-channel JSON files (`{channel}-allowFrom.json`, `{channel}-pairing.json`) | Flat files; no tenant scoping |
+| **Memory/RAG** | Builtin or QMD (LanceDB vector store) | Single vector namespace; no tenant data boundaries |
+| **Media** | Local filesystem with optional TTL cleanup | No tenant-scoped storage quotas or isolation |
+| **Gateway Auth** | Token/password, Tailscale, trusted-proxy | No user accounts, no RBAC, no tenant identity |
 
 ### 1.2 Key Architectural Characteristics
 
@@ -58,24 +58,24 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 
 **Chosen model: Shared Database / Shared Schema with Row-Level Security (RLS)**
 
-| Alternative                                | Verdict            | Reason                                                                                                           |
-| ------------------------------------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| DB-per-tenant                              | Rejected (for now) | Operationally expensive at scale; connection pool explosion; hard to query across tenants for platform analytics |
-| Schema-per-tenant                          | Rejected (for now) | Migration complexity scales linearly with tenant count; DDL drift risk                                           |
-| **Shared schema + RLS**                    | **Selected**       | Optimal for 1–10,000 tenants; single migration path; PostgreSQL RLS provides DB-enforced isolation               |
-| Hybrid (shared + dedicated for enterprise) | Future upgrade     | Enterprise tier can graduate to dedicated schemas/databases when compliance requires it                          |
+| Alternative | Verdict | Reason |
+|-------------|---------|--------|
+| DB-per-tenant | Rejected (for now) | Operationally expensive at scale; connection pool explosion; hard to query across tenants for platform analytics |
+| Schema-per-tenant | Rejected (for now) | Migration complexity scales linearly with tenant count; DDL drift risk |
+| **Shared schema + RLS** | **Selected** | Optimal for 1–10,000 tenants; single migration path; PostgreSQL RLS provides DB-enforced isolation |
+| Hybrid (shared + dedicated for enterprise) | Future upgrade | Enterprise tier can graduate to dedicated schemas/databases when compliance requires it |
 
 ### 2.3 Technology Decisions
 
-| Concern                   | Decision                                            | Rationale                                                                       |
-| ------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------- |
-| **Primary Database**      | PostgreSQL 16+                                      | RLS, JSONB, partitioning, `pg_stat_statements`, mature ecosystem                |
-| **ORM/Query Layer**       | Drizzle ORM                                         | TypeScript-native, migration-safe, lightweight, supports RLS via `SET` commands |
-| **Connection Pooling**    | PgBouncer (transaction mode)                        | Required for horizontal gateway scaling; prevents connection exhaustion         |
-| **Secrets Encryption**    | AES-256-GCM with per-tenant DEKs, master KEK in KMS | Envelope encryption; tenant key rotation without re-encrypting all data         |
-| **Auth**                  | OIDC/OAuth 2.0 + JWT with tenant claims             | Standard SaaS auth; supports SSO for enterprise tenants                         |
-| **Migration Tool**        | Drizzle Kit                                         | Aligned with ORM choice; generates safe DDL                                     |
-| **Vector Store (Memory)** | pgvector extension                                  | Eliminates separate LanceDB dependency; tenant-isolated via RLS                 |
+| Concern | Decision | Rationale |
+|---------|----------|-----------|
+| **Primary Database** | PostgreSQL 16+ | RLS, JSONB, partitioning, `pg_stat_statements`, mature ecosystem |
+| **ORM/Query Layer** | Drizzle ORM | TypeScript-native, migration-safe, lightweight, supports RLS via `SET` commands |
+| **Connection Pooling** | PgBouncer (transaction mode) | Required for horizontal gateway scaling; prevents connection exhaustion |
+| **Secrets Encryption** | AES-256-GCM with per-tenant DEKs, master KEK in KMS | Envelope encryption; tenant key rotation without re-encrypting all data |
+| **Auth** | OIDC/OAuth 2.0 + JWT with tenant claims | Standard SaaS auth; supports SSO for enterprise tenants |
+| **Migration Tool** | Drizzle Kit | Aligned with ORM choice; generates safe DDL |
+| **Vector Store (Memory)** | pgvector extension | Eliminates separate LanceDB dependency; tenant-isolated via RLS |
 
 ---
 
@@ -83,14 +83,14 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 
 ### 3.1 High-Risk Areas
 
-| Risk                             | Impact                        | Mitigation                                                                                              |
-| -------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Data leakage between tenants** | Critical — trust-destroying   | RLS enforced at DB level; defense-in-depth with application-layer checks; penetration testing per phase |
-| **Session store migration**      | High — data loss potential    | Dual-write phase; filesystem fallback; reversible migration batches                                     |
-| **Secrets migration**            | High — credential exposure    | Encrypt-on-read during migration; never log plaintext; audit trail on every access                      |
-| **Plugin compatibility**         | Medium — ecosystem breakage   | Versioned Plugin SDK; tenant context injected via existing `deps` pattern                               |
-| **Performance regression**       | Medium — user-facing latency  | Benchmark filesystem vs. DB latency before/after; connection pooling; read replicas                     |
-| **Self-hosted mode breakage**    | Medium — existing user impact | SQLite fallback for single-tenant; feature flags gate SaaS-only paths                                   |
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| **Data leakage between tenants** | Critical — trust-destroying | RLS enforced at DB level; defense-in-depth with application-layer checks; penetration testing per phase |
+| **Session store migration** | High — data loss potential | Dual-write phase; filesystem fallback; reversible migration batches |
+| **Secrets migration** | High — credential exposure | Encrypt-on-read during migration; never log plaintext; audit trail on every access |
+| **Plugin compatibility** | Medium — ecosystem breakage | Versioned Plugin SDK; tenant context injected via existing `deps` pattern |
+| **Performance regression** | Medium — user-facing latency | Benchmark filesystem vs. DB latency before/after; connection pooling; read replicas |
+| **Self-hosted mode breakage** | Medium — existing user impact | SQLite fallback for single-tenant; feature flags gate SaaS-only paths |
 
 ### 3.2 Non-Negotiable Constraints
 
@@ -106,13 +106,13 @@ Transform OpenClaw from a self-hosted single-tenant gateway into a **multi-tenan
 
 This plan is structured in execution order. Each document is self-contained but references predecessors.
 
-| Document                      | Title                                        | Focus                                                            |
-| ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------- |
-| **00-overview.md**            | Executive Overview (this document)           | Current state, vision, risk assessment                           |
-| **01-data-isolation.md**      | Data Isolation and PostgreSQL Schema         | Tenant model, RLS, full DDL, indexes, partitioning               |
+| Document | Title | Focus |
+|----------|-------|-------|
+| **00-overview.md** | Executive Overview (this document) | Current state, vision, risk assessment |
+| **01-data-isolation.md** | Data Isolation and PostgreSQL Schema | Tenant model, RLS, full DDL, indexes, partitioning |
 | **02-security-encryption.md** | Security, Encryption, and Secrets Management | Auth, encryption architecture, key management, secrets migration |
-| **03-migration-strategy.md**  | Migration Strategy and Execution Phases      | Phased rollout, dual-write, data migration, rollback plans       |
-| **04-infrastructure.md**      | Infrastructure, Scaling, and Observability   | Deployment topology, connection pooling, monitoring, SLAs        |
+| **03-migration-strategy.md** | Migration Strategy and Execution Phases | Phased rollout, dual-write, data migration, rollback plans |
+| **04-infrastructure.md** | Infrastructure, Scaling, and Observability | Deployment topology, connection pooling, monitoring, SLAs |
 
 ---
 
@@ -154,13 +154,13 @@ Phase 4 — Hardening           [Weeks 19–22]
 
 ## 6. Success Criteria
 
-| Metric                         | Target                                                      |
-| ------------------------------ | ----------------------------------------------------------- |
-| **Tenant data isolation**      | Zero cross-tenant data access in penetration test           |
-| **Session latency (p99)**      | < 50ms for session read (vs. current filesystem baseline)   |
-| **Config read latency (p99)**  | < 20ms (cached), < 100ms (cold)                             |
-| **Secrets decryption latency** | < 5ms per secret                                            |
-| **Horizontal scaling**         | Gateway instances scale independently; no shared filesystem |
-| **Self-hosted compatibility**  | All existing `openclaw gateway run` workflows unchanged     |
-| **Plugin SDK backward compat** | 100% of bundled plugins pass existing test suites           |
-| **Concurrent tenants**         | Support 1,000 tenants with 5,000 concurrent sessions each   |
+| Metric | Target |
+|--------|--------|
+| **Tenant data isolation** | Zero cross-tenant data access in penetration test |
+| **Session latency (p99)** | < 50ms for session read (vs. current filesystem baseline) |
+| **Config read latency (p99)** | < 20ms (cached), < 100ms (cold) |
+| **Secrets decryption latency** | < 5ms per secret |
+| **Horizontal scaling** | Gateway instances scale independently; no shared filesystem |
+| **Self-hosted compatibility** | All existing `openclaw gateway run` workflows unchanged |
+| **Plugin SDK backward compat** | 100% of bundled plugins pass existing test suites |
+| **Concurrent tenants** | Support 1,000 tenants with 5,000 concurrent sessions each |

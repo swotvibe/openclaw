@@ -11,13 +11,13 @@
 
 This plan is organized into 5 documents, each self-contained and ordered for sequential execution:
 
-| #     | Document                                                 | Focus Area                              | Key Deliverables                                                                                      |
-| ----- | -------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **0** | [00-overview.md](./00-overview.md)                       | Executive Overview                      | Current-state analysis, SaaS vision, risk assessment, technology decisions, timeline                  |
-| **1** | [01-data-isolation.md](./01-data-isolation.md)           | Data Isolation & PostgreSQL Schema      | Full production-grade DDL (14 tables), RLS policies, indexes, partitioning, pgvector, scaling roadmap |
-| **2** | [02-security-encryption.md](./02-security-encryption.md) | Security, Encryption & Secrets          | JWT/OIDC auth, RBAC, AES-256-GCM envelope encryption, KMS integration, key rotation, audit trail      |
-| **3** | [03-migration-strategy.md](./03-migration-strategy.md)   | Migration Strategy & Execution          | 4-phase rollout, dual-write strategy, migration scripts, feature flags, rollback plans                |
-| **4** | [04-infrastructure.md](./04-infrastructure.md)           | Infrastructure, Scaling & Observability | Deployment topology, PgBouncer, Redis, monitoring, alerting, disaster recovery, cost estimation       |
+| # | Document | Focus Area | Key Deliverables |
+|---|----------|-----------|------------------|
+| **0** | [00-overview.md](./00-overview.md) | Executive Overview | Current-state analysis, SaaS vision, risk assessment, technology decisions, timeline |
+| **1** | [01-data-isolation.md](./01-data-isolation.md) | Data Isolation & PostgreSQL Schema | Full production-grade DDL (14 tables), RLS policies, indexes, partitioning, pgvector, scaling roadmap |
+| **2** | [02-security-encryption.md](./02-security-encryption.md) | Security, Encryption & Secrets | JWT/OIDC auth, RBAC, AES-256-GCM envelope encryption, KMS integration, key rotation, audit trail |
+| **3** | [03-migration-strategy.md](./03-migration-strategy.md) | Migration Strategy & Execution | 4-phase rollout, dual-write strategy, migration scripts, feature flags, rollback plans |
+| **4** | [04-infrastructure.md](./04-infrastructure.md) | Infrastructure, Scaling & Observability | Deployment topology, PgBouncer, Redis, monitoring, alerting, disaster recovery, cost estimation |
 
 ---
 
@@ -86,18 +86,18 @@ Phase 4 — Hardening           [Weeks 19–22]  → Pen testing, benchmarks, GA
 
 ## Quick Reference — Technology Decisions
 
-| Concern            | Decision                                             |
-| ------------------ | ---------------------------------------------------- |
-| Database           | PostgreSQL 16+                                       |
-| ORM                | Drizzle ORM                                          |
-| Tenant isolation   | Shared schema + RLS                                  |
-| Connection pooling | PgBouncer (transaction mode)                         |
-| Secrets encryption | AES-256-GCM, envelope encryption, per-tenant DEKs    |
-| KMS                | AWS KMS / GCP KMS / HashiCorp Vault / Local fallback |
-| Auth               | JWT (ES256) + OIDC                                   |
-| Vector store       | pgvector (replaces LanceDB)                          |
-| Caching            | In-process + Redis                                   |
-| Object storage     | S3 / MinIO (tenant-prefixed)                         |
+| Concern | Decision |
+|---------|----------|
+| Database | PostgreSQL 16+ |
+| ORM | Drizzle ORM |
+| Tenant isolation | Shared schema + RLS |
+| Connection pooling | PgBouncer (transaction mode) |
+| Secrets encryption | AES-256-GCM, envelope encryption, per-tenant DEKs |
+| KMS | AWS KMS / GCP KMS / HashiCorp Vault / Local fallback |
+| Auth | JWT (ES256) + OIDC |
+| Vector store | pgvector (replaces LanceDB) |
+| Caching | In-process + Redis |
+| Object storage | S3 / MinIO (tenant-prefixed) |
 
 ---
 

@@ -3,6 +3,11 @@ import type { MediaUnderstandingOutput } from "./types.js";
 const MEDIA_PLACEHOLDER_RE = /^<media:[^>]+>(\s*\([^)]*\))?$/i;
 const MEDIA_PLACEHOLDER_TOKEN_RE = /^<media:[^>]+>(\s*\([^)]*\))?\s*/i;
 
+export type AudioContextSection = {
+  transcript: string;
+  summary?: string;
+};
+
 export function extractMediaUserText(body?: string): string | undefined {
   const trimmed = body?.trim() ?? "";
   if (!trimmed) {
@@ -32,6 +37,8 @@ function formatSection(
 export function formatMediaUnderstandingBody(params: {
   body?: string;
   outputs: MediaUnderstandingOutput[];
+  audioContexts?: ReadonlyMap<number, AudioContextSection>;
+  audioSummary?: string;
 }): string {
   const outputs = params.outputs.filter((output) => output.text.trim());
   if (outputs.length === 0) {
@@ -48,7 +55,12 @@ export function formatMediaUnderstandingBody(params: {
   for (const output of outputs) {
     counts.set(output.kind, (counts.get(output.kind) ?? 0) + 1);
   }
+  const audioOutputCount = counts.get("audio.transcription") ?? 0;
   const seen = new Map<MediaUnderstandingOutput["kind"], number>();
+
+  if (params.audioSummary && audioOutputCount > 1) {
+    sections.push(`[Audio Summary]\nSummary:\n${params.audioSummary}`);
+  }
 
   for (const output of outputs) {
     const count = counts.get(output.kind) ?? 1;
@@ -56,14 +68,18 @@ export function formatMediaUnderstandingBody(params: {
     seen.set(output.kind, next);
     const suffix = count > 1 ? ` ${next}/${count}` : "";
     if (output.kind === "audio.transcription") {
-      sections.push(
-        formatSection(
-          `Audio${suffix}`,
-          "Transcript",
-          output.text,
-          outputs.length === 1 ? userText : undefined,
-        ),
-      );
+      const audioContext = params.audioContexts?.get(output.attachmentIndex);
+      const audioLines = [`[Audio${suffix}]`];
+      if (outputs.length === 1 && userText) {
+        audioLines.push(`User text:\n${userText}`);
+      }
+      const inlineSummary =
+        audioOutputCount === 1 ? (audioContext?.summary ?? params.audioSummary) : undefined;
+      if (inlineSummary) {
+        audioLines.push(`Summary:\n${inlineSummary}`);
+      }
+      audioLines.push(`Transcript:\n${audioContext?.transcript ?? output.text}`);
+      sections.push(audioLines.join("\n"));
       continue;
     }
     if (output.kind === "image.description") {
@@ -95,4 +111,18 @@ export function formatAudioTranscripts(outputs: MediaUnderstandingOutput[]): str
     return outputs[0].text;
   }
   return outputs.map((output, index) => `Audio ${index + 1}:\n${output.text}`).join("\n\n");
+}
+
+export function formatAudioStatusSection(params: {
+  body?: string;
+  status: string;
+  includeUserText?: boolean;
+}): string {
+  const userText = params.includeUserText ? extractMediaUserText(params.body) : undefined;
+  const lines = ["[Audio Status]"];
+  if (userText) {
+    lines.push(`User text:\n${userText}`);
+  }
+  lines.push(`Status:\n${params.status}`);
+  return lines.join("\n");
 }
