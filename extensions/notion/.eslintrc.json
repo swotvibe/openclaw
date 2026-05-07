@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "consistent-return": "off",
+    "@typescript-eslint/no-explicit-any": "off"
+  }
+}

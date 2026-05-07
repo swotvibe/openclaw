@@ -6,6 +6,7 @@ import {
   parseOllamaNumCtxParameter,
   resetOllamaModelShowInfoCacheForTest,
   resolveOllamaApiBase,
+  resolveOllamaCloudModelCapabilities,
   type OllamaTagModel,
 } from "./provider-models.js";
 
@@ -287,5 +288,13 @@ describe("ollama provider models", () => {
     expect(parseOllamaNumCtxParameter("temperature 0.8\nnum_ctx -1\nnum_ctx 0")).toBeUndefined();
     expect(parseOllamaNumCtxParameter('stop "<|eot_id|>"')).toBeUndefined();
     expect(parseOllamaNumCtxParameter({ num_ctx: 8192 })).toBeUndefined();
+  });
+
+  it("does not advertise undocumented audio input for Ollama cloud models", () => {
+    expect(resolveOllamaCloudModelCapabilities("gemma4:31b-cloud")).toEqual([
+      "vision",
+      "tools",
+      "thinking",
+    ]);
   });
 });

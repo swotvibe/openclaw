@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMediaUnderstandingBody } from "./format.js";
+import { formatAudioStatusSection, formatMediaUnderstandingBody } from "./format.js";
 
 describe("formatMediaUnderstandingBody", () => {
   it("replaces placeholder body with transcript", () => {
@@ -89,28 +89,76 @@ describe("formatMediaUnderstandingBody", () => {
     expect(body).toBe("[Image]\nDescription:\na cat");
   });
 
-  it("labels audio transcripts by their attachment order", () => {
+  it("adds inline summary for a single long audio section", () => {
     const body = formatMediaUnderstandingBody({
+      body: "<media:audio>",
       outputs: [
         {
           kind: "audio.transcription",
           attachmentIndex: 0,
-          text: "first clip was silent",
-          provider: "openclaw",
+          text: "full transcript",
+          provider: "aimlapi",
+        },
+      ],
+      audioContexts: new Map([
+        [
+          0,
+          {
+            transcript: "trimmed transcript",
+            summary: "short summary",
+          },
+        ],
+      ]),
+    });
+
+    expect(body).toBe("[Audio]\nSummary:\nshort summary\nTranscript:\ntrimmed transcript");
+  });
+
+  it("adds a shared summary block when multiple audio outputs are present", () => {
+    const body = formatMediaUnderstandingBody({
+      body: "caption here",
+      outputs: [
+        {
+          kind: "audio.transcription",
+          attachmentIndex: 0,
+          text: "audio 1",
+          provider: "aimlapi",
         },
         {
           kind: "audio.transcription",
           attachmentIndex: 1,
-          text: "second clip has speech",
-          provider: "groq",
+          text: "audio 2",
+          provider: "aimlapi",
         },
       ],
+      audioSummary: "shared summary",
+      audioContexts: new Map([
+        [0, { transcript: "trimmed 1" }],
+        [1, { transcript: "trimmed 2" }],
+      ]),
     });
+
     expect(body).toBe(
       [
-        "[Audio 1/2]\nTranscript:\nfirst clip was silent",
-        "[Audio 2/2]\nTranscript:\nsecond clip has speech",
+        "User text:\ncaption here",
+        "[Audio Summary]\nSummary:\nshared summary",
+        "[Audio 1/2]\nTranscript:\ntrimmed 1",
+        "[Audio 2/2]\nTranscript:\ntrimmed 2",
       ].join("\n\n"),
+    );
+  });
+});
+
+describe("formatAudioStatusSection", () => {
+  it("includes user text when requested", () => {
+    expect(
+      formatAudioStatusSection({
+        body: "<media:audio> caption here",
+        status: "AIMLAPI transcription still processing",
+        includeUserText: true,
+      }),
+    ).toBe(
+      "[Audio Status]\nUser text:\ncaption here\nStatus:\nAIMLAPI transcription still processing",
     );
   });
 });

@@ -154,6 +154,11 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
     hasSubcommands: true,
   },
   {
+    name: "saas",
+    description: "Inspect and migrate SaaS PostgreSQL state",
+    hasSubcommands: true,
+  },
+  {
     name: "skills",
     description: "List and inspect available skills",
     hasSubcommands: true,

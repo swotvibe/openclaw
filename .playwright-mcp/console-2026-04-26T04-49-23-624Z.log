@@ -1,0 +1,7 @@
+[    2080ms] [WARNING] Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information. @ http://127.0.0.1:5173/@vite/client:509
+[    2115ms] ReferenceError: process is not defined
+    at resolveConfigDir (http://127.0.0.1:5173/@fs/home/ubuntu/opt/openclaw/src/utils.ts:109:40)
+    at http://127.0.0.1:5173/@fs/home/ubuntu/opt/openclaw/src/utils.ts:181:27
+[  175568ms] [WARNING] Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information. @ http://127.0.0.1:5173/@vite/client:509
+[  175702ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:5173/chat?session=main:0
+[  175702ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:5173/chat?session=main:0

@@ -41,12 +41,8 @@ Use this skill for release and publish-time workflow. Keep ordinary development 
   recommended replacement can shift as plugin ownership, externalization, and
   config footprint move, so do not blindly copy stale replacement annotations
   into release notes.
-- Do not delete or rewrite beta tags after their matching npm package has been
-  published. If a pushed beta tag fails before npm publish, the version is not
-  consumed: keep the same `-beta.N`, delete/recreate or force-move the git tag
-  and prerelease to the fixed commit, and rerun preflight. Do not increment to
-  the next beta number until the matching npm package has actually published.
-  If a published beta needs a fix, commit the fix on the release branch and
+- Do not delete or rewrite beta tags after they leave the machine. If a
+  published or pushed beta needs a fix, commit the fix on the release branch and
   increment to the next `-beta.N`.
 - For a beta release train, run the fast local preflight first, publish the
   beta to npm `beta`, then run the expensive published-package roster focused
@@ -185,9 +181,6 @@ live`; keep it clearly beta and avoid implying stable promotion.
   compact launch post, then publish one focused feature explainer per reply.
   Follow-up replies should not repeat "new in VERSION" or the version number
   when the thread context already makes it obvious.
-- Peter's preferred thread workflow: first agree on the generic launch tweet,
-  then proceed through follow-up tweets one by one. When he says `next`, provide
-  or copy the next follow-up only; do not dump the full thread again unless asked.
 - Every follow-up tweet should include a docs URL for that specific feature.
   Prefer a bare URL over `Docs: <url>` unless the label is needed for clarity.
   Keep follow-ups concise: around 160-220 raw characters is usually the sweet
@@ -331,12 +324,14 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
   - install/update smoke against the published beta channel
   - Docker install/update coverage that exercises the published beta package
   - published npm Telegram proof: dispatch Actions > `NPM Telegram Beta E2E`
-    from `main` with `package_spec=openclaw@<beta-version>` and
-    `provider_mode=mock-openai`, and require success. This workflow is
+    from `main` with `source=npm`, `package_spec=openclaw@<beta-version>`,
+    and `provider_mode=mock-openai`, and require success. Before publishing,
+    use the same workflow with `source=ref` and `package_ref=<branch-or-sha>`
+    for focused tarball-backed Telegram preflight. This workflow is
     maintainer-dispatched and intentionally has no `npm-release` approval gate;
-    `qa-live-shared` only supplies the shared QA secrets. This is the default
-    button path for installed-package onboarding, Telegram setup, and real
-    Telegram E2E against the published npm package.
+    `qa-live-shared` only supplies the shared QA secrets. The npm source is the
+    default button path for installed-package onboarding, Telegram setup, and
+    real Telegram E2E against the exact published npm package.
     Use the local `pnpm test:docker:npm-telegram-live` lane with the matching
     `OPENCLAW_NPM_TELEGRAM_PACKAGE_SPEC` and Convex CI env only as a fallback
     or debugging path.
@@ -371,10 +366,8 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
 - Any fix after preflight means a new commit. Delete and recreate the tag and
   matching GitHub release from the fixed commit, then rerun preflight from
   scratch before publishing.
-  Exception: never delete or recreate a beta tag whose matching npm package has
-  already been published; increment to the next beta number instead. If only the
-  pushed tag/prerelease exists and npm publish has not happened, recreate that
-  same beta tag at the fixed commit.
+  Exception: never delete or recreate a beta tag that has already been pushed or
+  published; increment to the next beta number instead.
 - For stable mac releases, generate the signed `appcast.xml` before uploading
   public release assets so the updater feed cannot lag the published binaries.
 - Serialize stable appcast-producing runs across tags so two releases do not
@@ -388,6 +381,27 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
   differs materially from beta, or the operator explicitly asks for full
   retesting.
 - If any required build, packaging step, or release workflow is red, do not say the release is ready.
+
+## Record release evidence with npm provenance
+
+- Every release validation evidence report should identify whether it matches a
+  published npm package. When dispatching `.github/workflows/full-release-validation.yml`
+  for a package that is already published or expected to be published before
+  evidence is finalized, pass `evidence_package_spec=openclaw@<version>`.
+- When the post-publish Telegram npm lane is part of the same full validation,
+  also pass `npm_telegram_package_spec=openclaw@<version>` so the validation
+  proves the exact registry package, not only a branch/ref tarball.
+- If a full validation was started before the npm package existed, regenerate
+  the private evidence after publish with
+  `openclaw/releases-private/.github/workflows/openclaw-release-evidence-from-full-validation.yml`
+  and pass `package_spec=openclaw@<version>`, the original
+  `full_validation_run_id`, and a human release id such as `YYYY.M.D`.
+- Use SHA evidence ids for immutable debugging, but also create/update the
+  human stable evidence bucket (`evidence/YYYY.M.D/`) after stable publish so
+  maintainers can find the final npm/release proof quickly.
+- Do not claim npm proof from a ref-backed or local tarball-backed run. Label
+  those as pre-publish package/tarball proof, and keep the npm registry proof
+  tied to `source=npm` or `package_spec=openclaw@<published-version>`.
 
 ## Use the right auth flow
 
@@ -567,9 +581,6 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
     commit, and rerun all relevant preflights from scratch before continuing.
     Never reuse old preflight results after the commit changes. For pushed or
     published beta tags, do not delete/recreate; increment to the next beta tag.
-    For preflight-only failures where npm did not publish the beta version,
-    delete/recreate the same beta tag and prerelease at the fixed commit instead
-    of skipping a prerelease number.
 20. Start `.github/workflows/openclaw-npm-release.yml` from the same branch with
     the same tag for the real publish, choose `npm_dist_tag` (`beta` default,
     `latest` only when you intentionally want direct stable publish), keep it
@@ -582,9 +593,9 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
     for critical fixes that landed after the release branch cut; backport only
     important low-risk fixes before starting expensive lanes, or increment to
     the next beta if the fix must change the already-published package. If any
-    lane fails after the beta package is published, fix, commit/push/pull,
-    increment to the next beta tag, and rerun the affected beta evidence. Once
-    the beta is live, start remote/manual rosters where they
+    lane fails after the beta tag/package is pushed or published, fix,
+    commit/push/pull, increment to the next beta tag, and rerun the affected
+    beta evidence. Once the beta is live, start remote/manual rosters where they
     can overlap safely, but keep local Docker and Parallels load controlled.
     Ensure the full expensive roster has passed at least once before
     stable/latest promotion. The roster includes the manual Actions >
@@ -622,6 +633,11 @@ node --import tsx scripts/openclaw-npm-postpublish-verify.ts <published-version>
     `appcast.xml` artifact and do not update the shared production feed unless a
     separate beta feed exists.
 32. After publish, verify npm and the attached release artifacts.
+33. After any beta or stable npm publish, ensure the private release evidence
+    report includes `package_spec=openclaw@<published-version>` and shows the
+    npm package match. If the original full validation omitted the package spec,
+    rerun the private evidence generation workflow with the same
+    `full_validation_run_id` and the published package spec.
 
 ## GHSA advisory work
 

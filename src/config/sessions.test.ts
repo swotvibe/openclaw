@@ -1,8 +1,7 @@
-import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withEnv } from "../test-utils/env.js";
 import {
   buildGroupDisplayName,
@@ -108,7 +107,7 @@ describe("sessions", () => {
     {
       name: "returns normalized per-sender key",
       scope: "per-sender" as const,
-      ctx: { From: "chat:+1555" },
+      ctx: { From: "whatsapp:+1555" },
       expected: "+1555",
     },
     {
@@ -126,14 +125,14 @@ describe("sessions", () => {
     {
       name: "keeps group chats distinct",
       scope: "per-sender" as const,
-      ctx: { From: "room-123", ChatType: "group", Provider: "demo-chat" },
-      expected: "demo-chat:group:room-123",
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
+      expected: "whatsapp:group:12345-678@g.us",
     },
     {
       name: "prefixes group keys with provider when available",
       scope: "per-sender" as const,
-      ctx: { From: "room-456", ChatType: "group", Provider: "demo-chat" },
-      expected: "demo-chat:group:room-456",
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
+      expected: "whatsapp:group:12345-678@g.us",
     },
   ] as const;
 
@@ -180,7 +179,7 @@ describe("sessions", () => {
     {
       name: "maps direct chats to main key when provided",
       scope: "per-sender" as const,
-      ctx: { From: "chat:+1555" },
+      ctx: { From: "whatsapp:+1555" },
       mainKey: "main",
       expected: "agent:main:main",
     },
@@ -201,9 +200,9 @@ describe("sessions", () => {
     {
       name: "leaves groups untouched even with main key",
       scope: "per-sender" as const,
-      ctx: { From: "room-123", ChatType: "group", Provider: "demo-chat" },
+      ctx: { From: "12345-678@g.us", ChatType: "group", Provider: "whatsapp" },
       mainKey: "main",
-      expected: "agent:main:demo-chat:group:room-123",
+      expected: "agent:main:whatsapp:group:12345-678@g.us",
     },
   ] as const;
 
@@ -270,7 +269,7 @@ describe("sessions", () => {
     await updateLastRoute({
       storePath,
       sessionKey: mainSessionKey,
-      channel: "demo-chat",
+      channel: "whatsapp",
       to: "111",
       accountId: "legacy",
       deliveryContext: {
@@ -327,7 +326,7 @@ describe("sessions", () => {
   });
 
   it("updateLastRoute records origin + group metadata when ctx is provided", async () => {
-    const sessionKey = "agent:main:demo-chat:group:room-123";
+    const sessionKey = "agent:main:whatsapp:group:123@g.us";
     const { storePath } = await createSessionStoreFixture({
       prefix: "updateLastRoute",
       entries: {},
@@ -337,70 +336,24 @@ describe("sessions", () => {
       storePath,
       sessionKey,
       deliveryContext: {
-        channel: "demo-chat",
-        to: "room-123",
+        channel: "whatsapp",
+        to: "123@g.us",
       },
       ctx: {
-        Provider: "demo-chat",
+        Provider: "whatsapp",
         ChatType: "group",
         GroupSubject: "Family",
-        From: "room-123",
+        From: "123@g.us",
       },
     });
 
     const store = loadSessionStore(storePath);
     expect(store[sessionKey]?.subject).toBe("Family");
-    expect(store[sessionKey]?.channel).toBe("demo-chat");
-    expect(store[sessionKey]?.groupId).toBe("room-123");
-    expect(store[sessionKey]?.origin?.label).toBe("Family");
-    expect(store[sessionKey]?.origin?.provider).toBe("demo-chat");
+    expect(store[sessionKey]?.channel).toBe("whatsapp");
+    expect(store[sessionKey]?.groupId).toBe("123@g.us");
+    expect(store[sessionKey]?.origin?.label).toBe("Family id:123@g.us");
+    expect(store[sessionKey]?.origin?.provider).toBe("whatsapp");
     expect(store[sessionKey]?.origin?.chatType).toBe("group");
-  });
-
-  it("updateLastRoute skips missing sessions when creation is disabled", async () => {
-    const sessionKey = "agent:main:demo-chat:group:room-123";
-    const { storePath } = await createSessionStoreFixture({
-      prefix: "updateLastRoute-no-create",
-      entries: {},
-    });
-
-    const result = await updateLastRoute({
-      storePath,
-      sessionKey,
-      deliveryContext: {
-        channel: "demo-chat",
-        to: "room-123",
-      },
-      createIfMissing: false,
-    });
-
-    const store = loadSessionStore(storePath);
-    expect(result).toBeNull();
-    expect(store[sessionKey]).toBeUndefined();
-  });
-
-  it("updateLastRoute updates existing sessions when creation is disabled", async () => {
-    const sessionKey = "agent:main:demo-chat:group:room-123";
-    const { storePath } = await createSessionStoreFixture({
-      prefix: "updateLastRoute-existing-no-create",
-      entries: {
-        [sessionKey]: buildMainSessionEntry(),
-      },
-    });
-
-    await updateLastRoute({
-      storePath,
-      sessionKey,
-      deliveryContext: {
-        channel: "demo-chat",
-        to: "room-123",
-      },
-      createIfMissing: false,
-    });
-
-    const store = loadSessionStore(storePath);
-    expect(store[sessionKey]?.lastChannel).toBe("demo-chat");
-    expect(store[sessionKey]?.lastTo).toBe("room-123");
   });
 
   it("updateLastRoute does not bump updatedAt on existing sessions (#49515)", async () => {
@@ -539,18 +492,18 @@ describe("sessions", () => {
       store["agent:main:main"] = {
         sessionId: "sess-normalized",
         updatedAt: Date.now(),
-        lastChannel: " Demo Chat ",
+        lastChannel: " WhatsApp ",
         lastTo: " +1555 ",
         lastAccountId: " acct-1 ",
       };
     });
 
     const store = loadSessionStore(storePath);
-    expect(store["agent:main:main"]?.lastChannel).toBe("demo chat");
+    expect(store["agent:main:main"]?.lastChannel).toBe("whatsapp");
     expect(store["agent:main:main"]?.lastTo).toBe("+1555");
     expect(store["agent:main:main"]?.lastAccountId).toBe("acct-1");
     expect(store["agent:main:main"]?.deliveryContext).toEqual({
-      channel: "demo chat",
+      channel: "whatsapp",
       to: "+1555",
       accountId: "acct-1",
     });
@@ -662,17 +615,46 @@ describe("sessions", () => {
     );
   });
 
-  it("resolves cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
+  it("rebases cross-agent paths when OPENCLAW_STATE_DIR differs from stored paths", () => {
     withStateDir(path.resolve("/different/state"), () => {
       const originalBase = path.resolve("/original/state");
       const bot2Session = path.join(originalBase, "agents", "bot2", "sessions", "sess-1.jsonl");
-      // sessionFile was created under a different state dir than current env
+      // sessionFile was created under a different state dir than current env;
+      // the path should be rebased to the current state root to avoid EACCES
+      // from stale absolute paths (e.g. Docker HOME=/home/node → host HOME=/home/ubuntu).
       const sessionFile = resolveSessionFilePath(
         "sess-1",
         { sessionFile: bot2Session },
         { agentId: "bot1" },
       );
-      expect(sessionFile).toBe(bot2Session);
+      const expectedRebased = path.join(
+        path.resolve("/different/state"),
+        "agents",
+        "bot2",
+        "sessions",
+        "sess-1.jsonl",
+      );
+      expect(sessionFile).toBe(expectedRebased);
+    });
+  });
+
+  it("rebases stale /home/node Docker paths to current state root", () => {
+    withStateDir(path.resolve("/home/ubuntu/.openclaw"), () => {
+      const staleDockerPath = "/home/node/.openclaw/agents/main/sessions/sess-docker.jsonl";
+      const sessionFile = resolveSessionFilePath(
+        "sess-docker",
+        { sessionFile: staleDockerPath },
+        { agentId: "main" },
+      );
+      expect(sessionFile).toBe(
+        path.join(
+          path.resolve("/home/ubuntu/.openclaw"),
+          "agents",
+          "main",
+          "sessions",
+          "sess-docker.jsonl",
+        ),
+      );
     });
   });
 
@@ -799,7 +781,7 @@ describe("sessions", () => {
     await expect(fs.stat(`${storePath}.lock`)).rejects.toThrow();
   });
 
-  it("updateSessionStoreEntry re-reads disk inside the writer slot instead of using stale cache", async () => {
+  it("updateSessionStoreEntry re-reads disk inside lock instead of using stale cache", async () => {
     const mainSessionKey = "agent:main:main";
     const { storePath } = await createSessionStoreFixture({
       prefix: "updateSessionStoreEntry-cache-bypass",
@@ -838,92 +820,5 @@ describe("sessions", () => {
     const store = loadSessionStore(storePath);
     expect(store[mainSessionKey]?.providerOverride).toBe("anthropic");
     expect(store[mainSessionKey]?.thinkingLevel).toBe("high");
-  });
-
-  it("updateSessionStore uses the writer-owned mutable cache without disk read or parse", async () => {
-    const mainSessionKey = "agent:main:main";
-    const { storePath } = await createSessionStoreFixture({
-      prefix: "updateSessionStore-mutable-cache",
-      entries: {
-        [mainSessionKey]: {
-          sessionId: "sess-1",
-          updatedAt: 123,
-          thinkingLevel: "low",
-        },
-      },
-    });
-
-    expect(loadSessionStore(storePath)[mainSessionKey]?.thinkingLevel).toBe("low");
-
-    const readSpy = vi.spyOn(fsSync, "readFileSync");
-    const parseSpy = vi.spyOn(JSON, "parse");
-    try {
-      await updateSessionStore(
-        storePath,
-        (store) => {
-          const existing = store[mainSessionKey];
-          if (!existing) {
-            throw new Error("missing session entry");
-          }
-          store[mainSessionKey] = {
-            ...existing,
-            thinkingLevel: "high",
-          };
-        },
-        { skipMaintenance: true },
-      );
-
-      expect(readSpy).not.toHaveBeenCalled();
-      expect(parseSpy).not.toHaveBeenCalled();
-    } finally {
-      readSpy.mockRestore();
-      parseSpy.mockRestore();
-    }
-
-    const store = loadSessionStore(storePath, { skipCache: true });
-    expect(store[mainSessionKey]?.thinkingLevel).toBe("high");
-  });
-
-  it("updateSessionStore drops a borrowed cache entry when a mutator throws", async () => {
-    const mainSessionKey = "agent:main:main";
-    const { storePath } = await createSessionStoreFixture({
-      prefix: "updateSessionStore-mutable-cache-throw",
-      entries: {
-        [mainSessionKey]: {
-          sessionId: "sess-1",
-          updatedAt: 123,
-          thinkingLevel: "low",
-        },
-      },
-    });
-
-    expect(loadSessionStore(storePath)[mainSessionKey]?.thinkingLevel).toBe("low");
-
-    await expect(
-      updateSessionStore(
-        storePath,
-        (store) => {
-          const existing = store[mainSessionKey];
-          if (!existing) {
-            throw new Error("missing session entry");
-          }
-          store[mainSessionKey] = {
-            ...existing,
-            thinkingLevel: "mutated-before-throw",
-          };
-          throw new Error("boom");
-        },
-        { skipMaintenance: true },
-      ),
-    ).rejects.toThrow("boom");
-
-    const readSpy = vi.spyOn(fsSync, "readFileSync");
-    try {
-      const store = loadSessionStore(storePath);
-      expect(readSpy).toHaveBeenCalled();
-      expect(store[mainSessionKey]?.thinkingLevel).toBe("low");
-    } finally {
-      readSpy.mockRestore();
-    }
   });
 });

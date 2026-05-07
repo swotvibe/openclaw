@@ -27,6 +27,7 @@ const hasAvailableAuthForProviderMock = vi.hoisted(() =>
 const fetchRemoteMediaMock = vi.hoisted(() => vi.fn());
 const runFfmpegMock = vi.hoisted(() => vi.fn());
 const runExecMock = vi.hoisted(() => vi.fn());
+const summarizeAudioTranscriptMock = vi.hoisted(() => vi.fn());
 
 let applyMediaUnderstanding: typeof import("./apply.js").applyMediaUnderstanding;
 let clearMediaUnderstandingBinaryCacheForTests: typeof import("./runner.js").clearMediaUnderstandingBinaryCacheForTests;
@@ -34,6 +35,7 @@ const mockedResolveApiKey = resolveApiKeyForProviderMock;
 const mockedFetchRemoteMedia = fetchRemoteMediaMock;
 const mockedRunFfmpeg = runFfmpegMock;
 const mockedRunExec = runExecMock;
+const mockedSummarizeAudioTranscript = summarizeAudioTranscriptMock;
 
 const TEMP_MEDIA_PREFIX = "openclaw-media-";
 let suiteTempMediaRootDir = "";
@@ -293,6 +295,9 @@ describe("applyMediaUnderstanding", () => {
         },
       };
     });
+    vi.doMock("./audio-summary.js", () => ({
+      summarizeAudioTranscript: summarizeAudioTranscriptMock,
+    }));
     ({ applyMediaUnderstanding } = await import("./apply.js"));
     ({ clearMediaUnderstandingBinaryCacheForTests } = await import("./runner.js"));
 
@@ -312,6 +317,8 @@ describe("applyMediaUnderstanding", () => {
     mockedFetchRemoteMedia.mockClear();
     mockedRunFfmpeg.mockReset();
     mockedRunExec.mockReset();
+    mockedSummarizeAudioTranscript.mockReset();
+    mockedSummarizeAudioTranscript.mockResolvedValue(undefined);
     mockedFetchRemoteMedia.mockResolvedValue({
       buffer: createSafeAudioFixtureBuffer(2048),
       contentType: "audio/ogg",
@@ -384,6 +391,97 @@ describe("applyMediaUnderstanding", () => {
       commandBody: "/capture status",
     });
     expect(ctx.CommandAuthorized).toBe(false);
+  });
+
+  it("reuses preflight transcript without retranscribing the same audio attachment", async () => {
+    const ctx = await createAudioCtx();
+    ctx.Transcript = "prefetched transcript";
+    ctx.MediaUnderstanding = [
+      {
+        kind: "audio.transcription",
+        attachmentIndex: 0,
+        text: "prefetched transcript",
+        provider: "aimlapi",
+        model: "openai/gpt-4o-mini-transcribe",
+      },
+    ];
+    const transcribeAudio = vi.fn(async () => ({ text: "should-not-run" }));
+
+    const result = await applyMediaUnderstanding({
+      ctx,
+      cfg: createGroqAudioConfig(),
+      providers: {
+        groq: {
+          id: "groq",
+          transcribeAudio,
+        },
+      },
+    });
+
+    expect(result.appliedAudio).toBe(true);
+    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(ctx.Body).toBe("[Audio]\nTranscript:\nprefetched transcript");
+    expect(ctx.CommandBody).toBe("prefetched transcript");
+  });
+
+  it("adds summary-first context for long audio-only transcripts", async () => {
+    const ctx = await createAudioCtx();
+    const longTranscript = `Lead in ${"x".repeat(4600)} tail`;
+    mockedSummarizeAudioTranscript.mockResolvedValue("summary text");
+
+    const result = await applyMediaUnderstanding({
+      ctx,
+      cfg: createGroqAudioConfig(),
+      activeModel: {
+        provider: "aimlapi",
+        model: "google/gemini-3-pro-preview",
+      },
+      providers: createGroqProviders(longTranscript),
+    });
+
+    expect(result.appliedAudio).toBe(true);
+    expect(ctx.Transcript).toBe(longTranscript);
+    expect(ctx.CommandBody).toBe(longTranscript);
+    expect(ctx.Body).toContain("[Audio]");
+    expect(ctx.Body).toContain("Summary:\nsummary text");
+    expect(ctx.Body).toContain("[Transcript truncated for context]");
+    expect(mockedSummarizeAudioTranscript).toHaveBeenCalledTimes(1);
+    expect(mockedSummarizeAudioTranscript.mock.calls[0]?.[0]).toMatchObject({
+      activeModel: {
+        provider: "aimlapi",
+        model: "google/gemini-3-pro-preview",
+      },
+      maxTokens: 180,
+    });
+  });
+
+  it("surfaces pending timeout as audio status instead of attachment-only silence", async () => {
+    const ctx = await createAudioCtx();
+    const result = await applyMediaUnderstanding({
+      ctx,
+      cfg: {
+        tools: {
+          media: {
+            audio: {
+              enabled: true,
+              models: [{ provider: "aimlapi" }],
+            },
+          },
+        },
+      },
+      providers: {
+        aimlapi: {
+          id: "aimlapi",
+          transcribeAudio: async () => {
+            throw new Error("AIMLAPI audio transcription pending timeout after 8000ms.");
+          },
+        },
+      },
+    });
+
+    expect(result.appliedAudio).toBe(false);
+    expect(ctx.Body).toContain("[Audio Status]");
+    expect(ctx.Body).toContain("AIMLAPI transcription still processing");
   });
 
   it("handles URL-only attachments for audio transcription", async () => {

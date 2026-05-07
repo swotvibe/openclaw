@@ -780,7 +780,7 @@ async function runAttachmentEntries(params: {
   capability: MediaUnderstandingCapability;
   cfg: OpenClawConfig;
   ctx: MsgContext;
-  attachmentIndex: number;
+  attachment: MediaAttachment;
   agentDir?: string;
   providerRegistry: ProviderRegistry;
   cache: MediaAttachmentCache;
@@ -802,7 +802,7 @@ async function runAttachmentEntries(params: {
               entry,
               cfg: params.cfg,
               ctx: params.ctx,
-              attachmentIndex: params.attachmentIndex,
+              attachmentIndex: params.attachment.index,
               cache: params.cache,
               config: params.config,
             })
@@ -811,7 +811,8 @@ async function runAttachmentEntries(params: {
               entry,
               cfg: params.cfg,
               ctx: params.ctx,
-              attachmentIndex: params.attachmentIndex,
+              attachmentIndex: params.attachment.index,
+              attachment: params.attachment,
               cache: params.cache,
               agentDir: params.agentDir,
               providerRegistry: params.providerRegistry,
@@ -993,7 +994,7 @@ export async function runCapability(params: {
       capability,
       cfg,
       ctx,
-      attachmentIndex: attachment.index,
+      attachment,
       agentDir: params.agentDir,
       providerRegistry: params.providerRegistry,
       cache: params.attachments,

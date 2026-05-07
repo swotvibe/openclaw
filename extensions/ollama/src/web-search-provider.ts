@@ -23,10 +23,10 @@ import { OLLAMA_DEFAULT_BASE_URL } from "./defaults.js";
 import { readProviderBaseUrl } from "./provider-base-url.js";
 import {
   buildOllamaBaseUrlSsrFPolicy,
+  checkOllamaCloudAuth,
   fetchOllamaModels,
   resolveOllamaApiBase,
 } from "./provider-models.js";
-import { checkOllamaCloudAuth } from "./setup.js";
 
 const OLLAMA_WEB_SEARCH_SCHEMA = Type.Object(
   {

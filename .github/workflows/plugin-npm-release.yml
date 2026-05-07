@@ -176,6 +176,9 @@ jobs:
           pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "false"
 
+      - name: Verify package-local runtime build
+        run: pnpm release:plugins:npm:runtime:check --package "${{ matrix.plugin.packageDir }}"
+
       - name: Preview publish command
         run: bash scripts/plugin-npm-publish.sh --dry-run "${{ matrix.plugin.packageDir }}"
 

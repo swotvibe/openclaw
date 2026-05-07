@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(www.alibabacloud.com)",
+      "WebSearch",
+      "WebFetch(www.xugj520.cn)",
+      "WebFetch(apidog.com)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm *)"
+    ]
+  },
+  "$version": 3
+}

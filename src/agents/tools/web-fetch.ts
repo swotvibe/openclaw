@@ -283,7 +283,6 @@ type WebFetchRuntimeParams = {
     allowRfc2544BenchmarkRange?: boolean;
     allowIpv6UniqueLocalRange?: boolean;
   };
-  providerCacheKey?: string;
   lookupFn?: LookupFn;
   resolveProviderFallback: () => Promise<WebFetchProviderFallback>;
 };
@@ -408,7 +407,7 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
         }
       : undefined;
   const cacheKey = normalizeCacheKey(
-    `fetch:${params.url}:${params.extractMode}:${params.maxChars}${params.providerCacheKey ? `:provider:${params.providerCacheKey}` : ""}${allowRfc2544BenchmarkRange ? ":allow-rfc2544" : ""}${allowIpv6UniqueLocalRange ? ":allow-ipv6-ula" : ""}${useTrustedEnvProxy ? ":trusted-env-proxy" : ""}`,
+    `fetch:${params.url}:${params.extractMode}:${params.maxChars}${allowRfc2544BenchmarkRange ? ":allow-rfc2544" : ""}${allowIpv6UniqueLocalRange ? ":allow-ipv6-ula" : ""}${useTrustedEnvProxy ? ":trusted-env-proxy" : ""}`,
   );
   const cached = readCache(FETCH_CACHE, cacheKey);
   if (cached) {
@@ -642,12 +641,6 @@ export function createWebFetchTool(options?: {
       if (!resolveFetchEnabled({ fetch: executionFetch, sandboxed: options?.sandboxed })) {
         throw new Error("web_fetch is disabled.");
       }
-      const providerCacheKey =
-        normalizeOptionalLowercaseString(runtimeWebFetch?.selectedProvider) ??
-        normalizeOptionalLowercaseString(runtimeWebFetch?.providerConfigured) ??
-        (executionFetch && "provider" in executionFetch
-          ? normalizeOptionalLowercaseString(executionFetch.provider)
-          : undefined);
       const readabilityEnabled = resolveFetchReadabilityEnabled(executionFetch);
       const userAgent =
         (executionFetch &&
@@ -699,7 +692,6 @@ export function createWebFetchTool(options?: {
         config,
         useTrustedEnvProxy: resolveFetchUseTrustedEnvProxy(executionFetch),
         ssrfPolicy: executionFetch?.ssrfPolicy,
-        ...(providerCacheKey ? { providerCacheKey } : {}),
         lookupFn: options?.lookupFn,
         resolveProviderFallback,
       });

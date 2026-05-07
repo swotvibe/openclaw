@@ -33,8 +33,9 @@ import { nodeVersionSatisfiesEngine } from "../../infra/runtime-guard.js";
 import {
   channelToNpmTag,
   DEFAULT_GIT_CHANNEL,
-  DEFAULT_PACKAGE_CHANNEL,
   normalizeUpdateChannel,
+  resolveRegistryUpdateChannel,
+  type UpdateChannel,
 } from "../../infra/update-channels.js";
 import {
   compareSemverStrings,
@@ -310,6 +311,24 @@ export function shouldUseLegacyProcessRestartAfterUpdate(params: {
   updateMode: UpdateRunResult["mode"];
 }): boolean {
   return !isPackageManagerUpdateMode(params.updateMode);
+}
+
+export function resolveUpdateCommandChannel(params: {
+  requestedChannel?: UpdateChannel | null;
+  storedChannel?: UpdateChannel | null;
+  updateInstallKind: "git" | "package" | "unknown";
+  currentVersion?: string | null;
+}): UpdateChannel {
+  if (params.requestedChannel) {
+    return params.requestedChannel;
+  }
+  if (params.updateInstallKind === "git") {
+    return params.storedChannel ?? DEFAULT_GIT_CHANNEL;
+  }
+  return resolveRegistryUpdateChannel({
+    configChannel: params.storedChannel,
+    currentVersion: params.currentVersion,
+  });
 }
 
 type PostUpdateLaunchAgentRecoveryResult =
@@ -1994,9 +2013,14 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
   const switchToPackage =
     requestedChannel !== null && requestedChannel !== "dev" && installKind === "git";
   const updateInstallKind = switchToGit ? "git" : switchToPackage ? "package" : installKind;
-  const defaultChannel =
-    updateInstallKind === "git" ? DEFAULT_GIT_CHANNEL : DEFAULT_PACKAGE_CHANNEL;
-  const channel = requestedChannel ?? storedChannel ?? defaultChannel;
+  const currentVersionForChannel =
+    updateInstallKind !== "git" && !switchToPackage ? await readPackageVersion(root) : null;
+  const channel = resolveUpdateCommandChannel({
+    requestedChannel,
+    storedChannel,
+    updateInstallKind,
+    currentVersion: currentVersionForChannel,
+  });
   const devTargetRef =
     channel === "dev" ? process.env.OPENCLAW_UPDATE_DEV_TARGET_REF?.trim() || undefined : undefined;
 
@@ -2010,7 +2034,7 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
   let packageAlreadyCurrent = false;
 
   if (updateInstallKind !== "git") {
-    currentVersion = switchToPackage ? null : await readPackageVersion(root);
+    currentVersion = switchToPackage ? null : currentVersionForChannel;
     if (explicitTag) {
       targetVersion = await resolveTargetVersion(tag, timeoutMs);
     } else {

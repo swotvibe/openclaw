@@ -77,6 +77,23 @@ export function makeZeroUsageSnapshot(): AssistantUsageSnapshot {
   };
 }
 
+export function hasRecordedUsageValues(snapshot: NormalizedUsage | AssistantUsageSnapshot | null | undefined): boolean {
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    (snapshot.input ?? 0) > 0 ||
+    (snapshot.output ?? 0) > 0 ||
+    (snapshot.cacheRead ?? 0) > 0 ||
+    (snapshot.cacheWrite ?? 0) > 0 ||
+    ((snapshot as AssistantUsageSnapshot).totalTokens ?? 0) > 0
+  );
+}
+
+export function isZeroUsageSnapshot(snapshot: NormalizedUsage | AssistantUsageSnapshot | null | undefined): boolean {
+  return !hasRecordedUsageValues(snapshot);
+}
+
 export function hasNonzeroUsage(usage?: NormalizedUsage | null): usage is NormalizedUsage {
   if (!usage) {
     return false;
@@ -219,18 +236,8 @@ export function derivePromptTokens(usage?: {
   return sum > 0 ? sum : undefined;
 }
 
-export function deriveContextPromptTokens(params: {
-  lastCallUsage?: NormalizedUsage;
-  promptTokens?: number;
-  usage?: NormalizedUsage;
-}): number | undefined {
-  const promptOverride = params.promptTokens;
-  if (typeof promptOverride === "number" && Number.isFinite(promptOverride) && promptOverride > 0) {
-    return promptOverride;
-  }
-
-  return derivePromptTokens(params.lastCallUsage) ?? derivePromptTokens(params.usage);
-}
+// Alias for backward compatibility
+export const deriveContextPromptTokens = derivePromptTokens;
 
 export function deriveSessionTotalTokens(params: {
   usage?: {
@@ -254,10 +261,13 @@ export function deriveSessionTotalTokens(params: {
 
   // NOTE: SessionEntry.totalTokens is used as a prompt/context snapshot.
   // It intentionally excludes completion/output tokens.
-  const promptTokens = deriveContextPromptTokens({
-    promptTokens: hasPromptOverride ? promptOverride : undefined,
-    usage,
-  });
+  const promptTokens = hasPromptOverride
+    ? promptOverride
+    : derivePromptTokens({
+        input: usage?.input,
+        cacheRead: usage?.cacheRead,
+        cacheWrite: usage?.cacheWrite,
+      });
 
   if (!(typeof promptTokens === "number") || !Number.isFinite(promptTokens) || promptTokens <= 0) {
     return undefined;

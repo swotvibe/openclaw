@@ -11,6 +11,7 @@ import {
   recoverInstalledLaunchAgentAfterUpdate,
   recoverLaunchAgentAndRecheckGatewayHealth,
   resolvePostInstallDoctorEnv,
+  resolveUpdateCommandChannel,
   shouldPrepareUpdatedInstallRestart,
   resolveUpdatedGatewayRestartPort,
   shouldUseLegacyProcessRestartAfterUpdate,
@@ -345,6 +346,43 @@ describe("shouldUseLegacyProcessRestartAfterUpdate", () => {
     expect(shouldUseLegacyProcessRestartAfterUpdate({ updateMode: "unknown" })).toBe(true);
   });
 });
+
+describe("resolveUpdateCommandChannel", () => {
+  it("keeps package updates on beta when the installed core is beta", () => {
+    expect(
+      resolveUpdateCommandChannel({
+        updateInstallKind: "package",
+        currentVersion: "2026.5.3-beta.1",
+      }),
+    ).toBe("beta");
+  });
+
+  it("keeps installed beta packages on beta even with stale stable config", () => {
+    expect(
+      resolveUpdateCommandChannel({
+        storedChannel: "stable",
+        updateInstallKind: "package",
+        currentVersion: "2026.5.3-beta.1",
+      }),
+    ).toBe("beta");
+  });
+
+  it("lets an explicit requested channel override the installed beta version", () => {
+    expect(
+      resolveUpdateCommandChannel({
+        requestedChannel: "stable",
+        storedChannel: "beta",
+        updateInstallKind: "package",
+        currentVersion: "2026.5.3-beta.1",
+      }),
+    ).toBe("stable");
+  });
+
+  it("keeps git installs on the dev default", () => {
+    expect(resolveUpdateCommandChannel({ updateInstallKind: "git" })).toBe("dev");
+  });
+});
+
 describe("recoverInstalledLaunchAgentAfterUpdate", () => {
   it("re-bootstraps an installed-but-not-loaded macOS LaunchAgent after update", async () => {
     const service = {} as never;

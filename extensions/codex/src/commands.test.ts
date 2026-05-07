@@ -1886,7 +1886,13 @@ describe("codex command", () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     await fs.writeFile(
       `${sessionFile}.codex-app-server.json`,
-      JSON.stringify({ schemaVersion: 1, threadId: "thread-123", cwd: "/repo" }),
+      JSON.stringify({
+        schemaVersion: 1,
+        threadId: "thread-123",
+        cwd: "/repo",
+        authProfileId: "openai-codex:work",
+        modelProvider: "openai",
+      }),
     );
     const failure = () => {
       throw new Error("app-server failed <@U123> [trusted](https://evil) @here");
